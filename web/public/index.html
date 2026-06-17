@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>溶图 · 轻量重打光</title>
+  <style>
+    :root {
+      --accent: #0a84ff; --green: #34c759;
+      --text: #1d1d1f; --text2: #86868b;
+      --sep: rgba(60,60,67,0.12);
+      --card: rgba(255,255,255,0.62); --cardline: rgba(255,255,255,0.85);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--text); min-height: 100vh;
+      font: 14px/1.45 -apple-system, "SF Pro Text", system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+      background:
+        radial-gradient(900px 620px at 6% -8%, #dbe7ff 0%, transparent 55%),
+        radial-gradient(820px 600px at 102% 6%, #ffe0ed 0%, transparent 52%),
+        radial-gradient(900px 720px at 58% 112%, #d6fbe7 0%, transparent 56%),
+        linear-gradient(160deg, #eef1f7, #e6ebf3);
+      background-attachment: fixed; }
+    .wrap { display: flex; gap: 18px; padding: 18px; align-items: flex-start; }
+    #stage { flex: 1 1 auto; min-width: 0; display: flex; justify-content: center; align-items: flex-start; }
+    #stage canvas { border-radius: 18px; display: block; box-shadow: 0 22px 55px rgba(20,30,60,0.20); }
+
+    .panel { flex: 0 0 304px; padding: 16px;
+      background: rgba(255,255,255,0.5);
+      backdrop-filter: blur(40px) saturate(180%); -webkit-backdrop-filter: blur(40px) saturate(180%);
+      border: 0.5px solid rgba(255,255,255,0.7); border-radius: 24px;
+      box-shadow: 0 18px 50px rgba(20,30,60,0.18);
+      max-height: calc(100vh - 36px); overflow-y: auto; }
+    .panel::-webkit-scrollbar { width: 0; }
+
+    header h1 { font-size: 21px; font-weight: 600; letter-spacing: -0.02em; margin: 2px 0 1px; }
+    header p { margin: 0 0 6px; color: var(--text2); font-size: 12.5px; }
+
+    .glabel { color: var(--text2); font-size: 11.5px; font-weight: 600; letter-spacing: 0.02em;
+      margin: 16px 6px 7px; }
+    .card { background: var(--card); border: 0.5px solid var(--cardline); border-radius: 16px;
+      box-shadow: 0 1px 3px rgba(20,30,60,0.05); padding: 2px 14px; margin-bottom: 6px; }
+    .card.pad { padding: 14px; }
+
+    .row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 8px;
+      padding: 9px 0; border-bottom: 0.5px solid var(--sep); }
+    .card .row:last-child { border-bottom: none; }
+    .rl { color: var(--text); font-size: 13.5px; }
+    .val { color: var(--text2); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+    input[type=range] { grid-column: 1 / -1; -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px; margin: 7px 0 1px; width: 100%;
+      background: rgba(120,120,128,0.22); cursor: pointer; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 22px; height: 22px;
+      border-radius: 50%; background: #fff;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 0 0 0.5px rgba(0,0,0,0.05); }
+    input[type=range]::-moz-range-thumb { width: 22px; height: 22px; border: none; border-radius: 50%;
+      background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.28); }
+
+    .switch { position: relative; width: 44px; height: 26px; flex: 0 0 auto; }
+    .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+    .track { position: absolute; inset: 0; border-radius: 99px; background: rgba(120,120,128,0.28);
+      transition: background .22s ease; pointer-events: none; }
+    .track::before { content: ''; position: absolute; top: 2px; left: 2px; width: 22px; height: 22px;
+      border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: transform .22s ease; }
+    .switch input:checked + .track { background: var(--green); }
+    .switch input:checked + .track::before { transform: translateX(18px); }
+
+    select { -webkit-appearance: none; appearance: none; border: 0.5px solid rgba(0,0,0,0.1);
+      background: rgba(255,255,255,0.7); color: var(--text); border-radius: 9px; padding: 6px 28px 6px 11px;
+      font: inherit; cursor: pointer;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2386868b' fill='none' stroke-width='1.5'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 10px center; }
+    .seg { display: flex; gap: 6px; }
+    .segb { padding: 6px 13px; border-radius: 9px; background: rgba(120,120,128,0.12); color: var(--accent);
+      font-size: 13px; cursor: pointer; transition: background .15s; }
+    .segb:hover { background: rgba(10,132,255,0.14); }
+
+    .abtn { width: 100%; margin-top: 12px; padding: 9px; border: none; border-radius: 11px;
+      background: var(--accent); color: #fff; font: inherit; font-weight: 500; cursor: pointer;
+      box-shadow: 0 3px 10px rgba(10,132,255,0.32); transition: transform .1s, box-shadow .2s; }
+    .abtn:hover { box-shadow: 0 4px 14px rgba(10,132,255,0.42); }
+    .abtn:active { transform: scale(0.98); }
+
+    .puck { position: relative; width: 100%; max-width: 196px; aspect-ratio: 1 / 1; margin: 0 auto;
+      border-radius: 18px;
+      background: radial-gradient(circle at 50% 36%, rgba(255,214,107,0.20), transparent 62%),
+                  linear-gradient(160deg, #f5f7fb, #e8edf5);
+      border: 0.5px solid rgba(255,255,255,0.95); box-shadow: inset 0 1px 7px rgba(20,30,60,0.13);
+      touch-action: none; cursor: crosshair; }
+    .knob { position: absolute; width: 20px; height: 20px; border-radius: 50%;
+      background: radial-gradient(circle at 34% 30%, #fff, #ffd05a);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25), 0 0 16px rgba(255,200,80,0.65);
+      transform: translate(-50%,-50%); left: 75%; top: 25%; pointer-events: none; }
+
+    .hint { color: var(--text2); font-size: 11.5px; margin: 7px 6px 2px; }
+    .foot { margin-top: 14px; padding: 11px 6px 2px; border-top: 0.5px solid var(--sep);
+      color: var(--text2); font-size: 11.5px; line-height: 1.75; }
+    #loading { position: fixed; inset: 0; z-index: 9998; display: none;
+      align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+      background: rgba(245,247,251,0.55); backdrop-filter: blur(12px) saturate(160%);
+      -webkit-backdrop-filter: blur(12px) saturate(160%); color: var(--text); font-size: 14px; font-weight: 500; }
+    .spinner { width: 44px; height: 44px; border: 4px solid rgba(10,132,255,0.22);
+      border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <div id="err" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
+       background:#ff453a;color:#fff;padding:9px 16px;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;">
+  </div>
+  <div id="loading"><div class="spinner"></div><div id="loadtext">处理中…</div></div>
+  <div class="wrap">
+    <div id="stage"></div>
+    <aside class="panel">
+      <header>
+        <h1>溶图</h1>
+        <p>轻量重打光 · 2D 角色保留 · 浏览器实时</p>
+      </header>
+
+      <div class="glabel">角色 / 场景</div>
+      <div class="card">
+        <div class="row"><span class="rl">角色</span><select id="charSel"></select></div>
+        <div class="row"><span class="rl">上传</span>
+          <div class="seg">
+            <label class="segb">角色<input type="file" id="upChar" accept="image/*" hidden></label>
+            <label class="segb">场景<input type="file" id="upScene" accept="image/*" hidden></label>
+          </div>
+        </div>
+      </div>
+      <div class="hint">拖角色/影子移动 · 滚轮缩放 · 用上面 puck 调光</div>
+
+      <div class="glabel">光照方向</div>
+      <div class="card pad">
+        <div class="puck" id="puck"><div class="knob" id="knob"></div></div>
+        <button class="abtn" id="reEst">自动重新估计光照</button>
+      </div>
+      <div class="card" id="sliders-light"></div>
+
+      <div class="glabel">写实效果</div>
+      <div class="card" id="toggles"></div>
+      <div class="card" id="sliders-fx"></div>
+
+      <div class="foot">
+        <div id="stat-light">光向 —</div>
+        <div id="stat-depth">—</div>
+        <div id="stat-toggle">—</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    function showErr(m){ var d=document.getElementById('err'); d.style.display='block'; d.textContent='⚠ ' + m; }
+    function showLoading(on, text){ var d=document.getElementById('loading');
+      if(text) document.getElementById('loadtext').textContent=text; d.style.display = on?'flex':'none'; }
+    window.addEventListener('error', e => showErr((e.message||e.error) + '  @ ' + (e.filename||'') + ':' + (e.lineno||'')));
+    window.addEventListener('unhandledrejection', e => showErr('promise: ' + ((e.reason && e.reason.message) || e.reason)));
+  </script>
+  <script src="./vendor/pixi.min.js"></script>
+  <script src="./vendor/interact.min.js"></script>
+  <script src="./app.js?v=24"></script>
+  <script>
+  (function(){
+    const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+    const SLIDERS_LIGHT = [
+      ['diffuse','主光强度',0,1.5,0.01], ['ambient','环境光',0,0.6,0.01],
+      ['exposure','曝光',0.6,1.6,0.01], ['highlight','高光',0,1.5,0.01],
+      ['shadowDark','背光压暗',0,1,0.01],
+    ];
+    const SLIDERS_FX = [
+      ['ao','AO 遮蔽',0,1,0.01], ['rim','边缘补光',0,1.5,0.01], ['env','环境色渗入',0,2,0.01],
+      ['shadowStrength','阴影浓度',0,1.5,0.01], ['foot','接地点(脚的位置)',0.3,1,0.01],
+      ['shLen','影子长度',0.1,2.5,0.05], ['shAngle','影子角度(°)',-70,70,1],
+      ['aperture','光圈(景深虚化)',0,1,0.01], ['glowAlpha','泛光',0,1.2,0.01], ['edgeSoft','边缘柔化',0,3,0.05],
+    ];
+    const TOGGLES = [['shadow','阴影'],['occ','遮挡'],['dof','景深'],['glow','泛光'],['depthScale','深度缩放']];
+
+    function buildSliders(host, defs, app){
+      defs.forEach(([key,label,min,max,step])=>{
+        const row = document.createElement('div'); row.className='row';
+        const v = app.defaults[key];
+        row.innerHTML = `<span class="rl">${label}</span><span class="val" id="v-${key}">${(+v).toFixed(2)}</span>`;
+        const inp = document.createElement('input');
+        inp.type='range'; inp.min=min; inp.max=max; inp.step=step; inp.value=v;
+        inp.oninput = ()=>{ app.setParam(key, +inp.value); document.getElementById('v-'+key).textContent=(+inp.value).toFixed(2); };
+        app.setParam(key, +v);   // 加载时把默认值应用到渲染(同步滑块与画面)
+        row.appendChild(inp); host.appendChild(row);
+      });
+    }
+    function buildToggles(host, app){
+      const st = { shadow:true, occ:true, dof:true, glow:true, depthScale:false };
+      TOGGLES.forEach(([key,label])=>{
+        const row = document.createElement('div'); row.className='row';
+        const rl = document.createElement('span'); rl.className='rl'; rl.textContent=label;
+        const sw = document.createElement('label'); sw.className='switch';
+        const cb = document.createElement('input'); cb.type='checkbox'; cb.checked=st[key];
+        cb.onchange = ()=> app.toggle(key, cb.checked);
+        const tr = document.createElement('span'); tr.className='track';
+        sw.appendChild(cb); sw.appendChild(tr);
+        row.appendChild(rl); row.appendChild(sw); host.appendChild(row);
+      });
+    }
+    function setupPuck(app){
+      const puck=document.getElementById('puck'), knob=document.getElementById('knob');
+      let down=false;
+      const setKnob=(px,py)=>{ knob.style.left=((px*0.5+0.5)*100)+'%'; knob.style.top=((-py*0.5+0.5)*100)+'%'; };
+      const fromEv=(e)=>{ const r=puck.getBoundingClientRect();
+        let px=clamp((e.clientX-r.left)/r.width*2-1,-1,1), py=clamp(-((e.clientY-r.top)/r.height*2-1),-1,1);
+        setKnob(px,py); app.setLightXY(px,py); };
+      puck.addEventListener('pointerdown', e=>{down=true; puck.setPointerCapture(e.pointerId); fromEv(e);});
+      puck.addEventListener('pointermove', e=>{ if(down) fromEv(e); });
+      puck.addEventListener('pointerup', ()=>down=false);
+      const L=app.getLight(); setKnob(L[0],L[1]);
+      window.__syncPuck = ()=>{ const l=app.getLight(); setKnob(l[0],l[1]); };
+    }
+    async function setupChars(app){
+      const sel=document.getElementById('charSel');
+      const cur=app.char;
+      let opts=['miku','rei'];
+      try{ const r=await fetch('/api/chars'); const j=await r.json(); if(j.chars&&j.chars.length) opts=j.chars; }catch(e){}
+      if(!opts.includes(cur)) opts.unshift(cur);
+      sel.innerHTML = opts.map(o=>`<option ${o===cur?'selected':''}>${o}</option>`).join('');
+      sel.onchange = ()=>{ location.search='?char='+sel.value; };
+      const up = async (file, kind)=>{
+        if(!file) return;
+        showLoading(true, kind==='character' ? '抠图 + 法线处理中…' : '场景分析中(光照/深度)…');
+        const fd=new FormData(); fd.append('file',file); if(kind==='character') fd.append('name','upload');
+        try{ const r=await fetch('/api/'+kind,{method:'POST',body:fd}); if(!r.ok) throw new Error(await r.text());
+          if(kind==='character') location.search='?char=upload'; else location.reload();
+        }catch(e){ showLoading(false); showErr('上传失败: '+e.message); }
+      };
+      document.getElementById('upChar').onchange = e=> up(e.target.files[0],'character');
+      document.getElementById('upScene').onchange = e=> up(e.target.files[0],'scene');
+    }
+    function showStatus(t){ document.getElementById('stat-depth').textContent=t; }
+
+    let inited=false;
+    function init(){
+      if(inited || !window.__app) return; inited=true;
+      const app = window.__app;
+      buildSliders(document.getElementById('sliders-light'), SLIDERS_LIGHT, app);
+      buildSliders(document.getElementById('sliders-fx'), SLIDERS_FX, app);
+      buildToggles(document.getElementById('toggles'), app);
+      setupPuck(app);
+      setupChars(app);
+      document.getElementById('reEst').onclick = async ()=>{ await app.reEstimate(); window.__syncPuck&&window.__syncPuck(); };
+    }
+    window.addEventListener('app-ready', init);
+    if (window.__app) init();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+# 大模型权重(Depth-Anything ~99MB,超 GitHub 限制;首次运行自动下载,见 README)
+backend/models/
+
+# 工作目录 / 中间产物(可重生成)
+out/
+
+# 源图:动漫角色/场景原图有版权,请自行添加(见 README「添加角色/场景」)
+inputs/
+
+# 前端生成资产(由 inputs 经管线生成,可重生成;含版权派生)
+web/public/*_rgba.webp
+web/public/*_rgba.png
+web/public/*_normal.png
+web/public/*_ao.png
+web/public/*_cdepth.png
+web/public/scene.jpg
+web/public/scene_depth.png
+web/public/light.json
+web/public/upload_*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# OS / 编辑器
+.DS_Store
+.idea/
+.vscode/
