@@ -85,11 +85,11 @@ el.power.oninput = (e) => game.setSelectedPower(parseFloat(e.target.value));
 // window-wall selector
 function setWall(wall) {
   game.setWindowWall(wall);
-  $('wallBack').classList.toggle('on', wall === 'back');
   $('wallLeft').classList.toggle('on', wall === 'left');
+  $('wallRight').classList.toggle('on', wall === 'right');
 }
-$('wallBack').onclick = () => setWall('back');
 $('wallLeft').onclick = () => setWall('left');
+$('wallRight').onclick = () => setWall('right');
 
 // build-mode tabs
 function setMode(mode) {

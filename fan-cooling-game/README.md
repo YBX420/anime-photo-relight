@@ -4,9 +4,9 @@ A chill little browser game for a sweltering British summer with **no air-con**.
 You've only got fans — place them, aim them, arrange your furniture, and discover
 the layout that keeps you coolest, by day and by night.
 
-> Soft pastel **isometric 2D** visuals in the spirit of *Townscaper* (original
-> art, not copied assets) · springy, casual feel · a real incompressible-fluid
-> airflow simulation under the hood.
+> A flat, hand-illustrated **2D side-on** look (a storybook cross-section of the
+> room) · cozy pastel palette · a real incompressible-fluid airflow simulation
+> with buoyancy under the hood. All art is original drawing code.
 
 ## Play
 
@@ -41,7 +41,7 @@ comfortable "feels like" temperature.
 ## The physics (roughly right, not a thesis)
 
 The airflow is a 2D **stable-fluids** solver (Jos Stam, 1999) running on a
-64×64 top-down grid — see [`src/fluid.js`](src/fluid.js):
+64×64 grid read as a vertical slice of the room — see [`src/fluid.js`](src/fluid.js):
 
 - **Incompressible & mass-conserving** velocity field via an iterative pressure
   projection — this is what gives believable recirculation and vortices rather
@@ -49,8 +49,11 @@ The airflow is a 2D **stable-fluids** solver (Jos Stam, 1999) running on a
 - **Semi-Lagrangian advection** (unconditionally stable) carries both momentum
   and the temperature field along the flow.
 - **Viscous + thermal diffusion** via Gauss–Seidel relaxation.
-- Fans inject a cone of momentum; walls reflect it; the window is an opening
-  that exchanges air and heat with the outside.
+- **Buoyancy**: warm cells get an upward force and cool cells a downward one, so
+  hot air rises to the ceiling and cool window air sinks across the floor —
+  visible convection currents.
+- Fans inject a cone of momentum; walls reflect it; the side-wall window is an
+  opening that exchanges air and heat with the outside.
 
 Heat transfer is deliberately approximate ([`src/game.js`](src/game.js)):
 wall conduction, window air exchange, a sunny floor patch whose intensity
@@ -59,19 +62,19 @@ follows the sun's elevation, and a small ambient internal gain. Comfort uses a
 temperature (~33 °C); blow air hotter than that and a fan actually makes you
 feel *worse*, just like in real life.
 
-## Visual style — soft isometric (Townscaper-inspired)
+## Visual style — flat 2D side-on illustration
 
-Everything is drawn on a plain 2D `<canvas>` in an isometric projection, styled
-after the soft, rounded, pastel, ambient-occluded look of *Townscaper* — but
-recreated entirely with original drawing code, **not** copied assets
-([`src/scene2d.js`](src/scene2d.js)):
+Everything is drawn on a plain 2D `<canvas>` as a flat, hand-illustrated
+cross-section of the room — floor at the bottom, ceiling on top, walls at the
+sides, a window looking out to the sky. Flat front-facing shapes, clean soft
+outlines, at most two tones, no 3D face shading ([`src/scene2d.js`](src/scene2d.js)):
 
-- A single linear transform maps the square CFD grid onto the isometric floor,
-  so the temperature field and airflow drop straight in.
-- Soft contact-shadow "AO" under every prop, gentle vertical light gradients on
-  walls and boxes, a pastel gradient sky, and a day/night tint pass.
-- Airflow is drawn as short **wind streaks** along the local flow direction, so
-  you can literally see the vortices and recirculation the fluid solver makes.
+- The CFD grid is read as a **vertical slice** (x across, height up), so the
+  temperature field and airflow map straight onto the picture.
+- Furniture, fans and the character are flat illustrated props with rounded
+  silhouettes; a cozy house sits on grass under a day/night sky.
+- Airflow is drawn as soft **streaks** along the local flow direction, so you can
+  see warm air rise, cool window air sink, and the fan's jet swirl.
 
 ## Tech
 
