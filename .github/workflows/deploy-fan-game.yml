@@ -27,6 +27,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+        with:
+          # auto-enable Pages (Source: GitHub Actions) via the API so no manual
+          # repo-settings step is needed; requires the pages: write permission above
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: fan-cooling-game
