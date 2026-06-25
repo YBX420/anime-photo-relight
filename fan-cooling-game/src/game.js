@@ -5,7 +5,7 @@
 // (incompressible, mass-conserving) via src/fluid.js.
 
 import { Fluid } from './fluid.js';
-import { Scene2D } from './scene2d.js';
+import { Scene3D } from './scene.js';
 import { fetchWeather } from './weather.js';
 
 const N = 64;
@@ -15,7 +15,7 @@ const COMFORT_BAND = 6;        // °C half-width that still scores points
 
 export class Game {
   constructor(canvas) {
-    this.scene = new Scene2D(canvas);
+    this.scene = new Scene3D(canvas);
     this.scene.N = N;
     this.fluid = new Fluid(N, { iters: 14, visc: 0.00002, diff: 0.00006 });
     this.scene.initParticles(800);
