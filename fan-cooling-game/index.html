@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Fan Feng Shui — keep cool in the British heat 🌬️</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🌬️</text></svg>" />
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <!-- top status bar -->
+  <header id="hud">
+    <div class="brand">🌬️ <b>Fan Feng Shui</b></div>
+    <div class="stats">
+      <div class="stat"><span class="lbl">Outside</span><span id="outdoor" class="val">–</span></div>
+      <div class="stat"><span class="lbl">Room avg</span><span id="indoor" class="val">–</span></div>
+      <div class="stat hl"><span class="lbl">You feel</span><span id="feels" class="val">–</span></div>
+      <div class="stat"><span class="lbl">Breeze</span><span id="airspeed" class="val">–</span></div>
+    </div>
+    <div class="comfort">
+      <div class="comfort-track"><div id="comfortBar"></div></div>
+      <span id="comfortPct">0%</span>
+      <span class="score">⭐ <b id="score">0</b></span>
+    </div>
+  </header>
+
+  <!-- right control panel -->
+  <aside id="panel">
+    <div class="card">
+      <div class="row place-row">
+        <span id="dayico">☀️</span>
+        <span id="clock">--:--</span>
+        <span id="place" class="place">…</span>
+      </div>
+      <form id="locForm" class="row">
+        <input id="locInput" placeholder="city (e.g. Manchester)" autocomplete="off" />
+        <button type="submit">Go</button>
+        <span id="locStatus" class="status"></span>
+      </form>
+      <div class="row">
+        <input id="time" type="range" min="0" max="23.99" step="0.1" value="14" />
+      </div>
+      <button id="autoClock" class="wide">⏯ Time: MANUAL</button>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Room</div>
+      <button id="winBtn" class="wide on">🪟 Window: OPEN</button>
+      <div class="row">
+        <span class="lbl">Wall</span>
+        <button id="wallBack" class="seg on">Back</button>
+        <button id="wallLeft" class="seg">Left</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title">Build</div>
+      <div class="row tabs">
+        <button id="tabFan" class="seg on">🌀 Fans</button>
+        <button id="tabFurn" class="seg">🛋 Furniture</button>
+      </div>
+
+      <div id="fanPanel">
+        <div class="card-title small-title">Fan <span id="fanCount" class="muted">0/4</span></div>
+        <div class="hint">Tap the floor to drop a fan. Drag from a fan to aim it.</div>
+        <div class="row">
+          <span class="lbl">Aim</span>
+          <button id="rotL">⟲</button>
+          <button id="rotR">⟳</button>
+          <button id="removeBtn" class="danger">🗑 Remove</button>
+        </div>
+        <div id="powerRow" class="row" style="display:none">
+          <span class="lbl">Power</span>
+          <input id="power" type="range" min="0.2" max="1.6" step="0.1" value="1" />
+        </div>
+      </div>
+
+      <div id="furnPanel" style="display:none">
+        <div class="card-title small-title">Furniture <span id="furnCount" class="muted">0/6</span></div>
+        <div class="hint">Pick a piece, tap the floor to place. Tap a piece to remove. Furniture blocks and redirects airflow.</div>
+        <div class="furn-grid">
+          <button class="furn seg on" data-furn="shelf">📚 Shelf</button>
+          <button class="furn seg" data-furn="table">🪑 Table</button>
+          <button class="furn seg" data-furn="cabinet">🗄 Cabinet</button>
+          <button class="furn seg" data-furn="fridge">🧊 Fridge🔥</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- intro tip -->
+  <div id="tip" class="tip">
+    <div class="tip-card">
+      <h1>🌬️ Fan Feng Shui</h1>
+      <p>It's a sweltering British summer and you've got <b>no air-con</b>.
+         Only fans. Place them, aim them, and find the layout that keeps you
+         coolest — by day and by night.</p>
+      <ul>
+        <li>🖱️ <b>Tap the floor</b> to drop a fan, then <b>drag</b> to aim it.</li>
+        <li>🪟 <b>At night</b> open the window and blow cool outside air in.</li>
+        <li>☀️ <b>By day</b> the sun heats the room — close up and let the
+            breeze chill your skin instead.</li>
+      </ul>
+      <p class="small">Outdoor temperature is pulled live from your chosen city.
+         Airflow is a real incompressible fluid simulation.</p>
+      <button id="startBtn" onclick="document.getElementById('tip').classList.add('hidden')">Let's cool down →</button>
+    </div>
+  </div>
+
+  <script type="module" src="./src/ui.js"></script>
+</body>
+</html>
