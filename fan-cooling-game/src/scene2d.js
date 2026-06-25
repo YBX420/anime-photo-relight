@@ -10,17 +10,18 @@
 
 const TAU = Math.PI * 2;
 
-// soft pastel palette
+// Curated, harmonious pastel palette in the spirit of Townscaper's limited
+// 16-colour set (soft terracotta / cream / sage / dusty blue / butter).
 const PAL = {
-  sky1: '#bfe6ff', sky2: '#eaf8ff',
-  nightTint: '20,28,60',
-  water: 0x9ed8d6, waterN: 0x46708c,
-  island: 0xe9cfa3, islandSide: 0xd6b483, islandDark: 0xc6a06e,
-  floor: 0xf2e0bd, floorLine: 0xe6cfa3,
-  wall: 0xf6efe3, wallTop: 0xfdf8ee, wallSide: 0xe7dcc8,
-  glass: 0xbfe8ff, frame: 0xcdb79c,
-  rug: 0xf2c2a6,
-  bodyA: 0x8fb8e8, bodyB: 0x6f9fda, skin: 0xffdcbb, skinHot: 0xff9d88,
+  sky1: '#bcdcef', sky2: '#f4efe2',
+  nightTint: '22,28,58',
+  water: 0x9bd3cf, waterN: 0x3f6480,
+  island: 0xe7c89c, islandSide: 0xd6b07f, islandDark: 0xc09766,
+  floor: 0xeed9b0, floorLine: 0xe2c79a,
+  wall: 0xf4ebd8, wallTop: 0xfcf6ea, wallSide: 0xe7d9bd,
+  glass: 0xc2e6f2, frame: 0xc7ad86,
+  rug: 0xe7a586,
+  bodyA: 0x8bb4e2, bodyB: 0x6d97d2, skin: 0xffd9b6, skinHot: 0xff9a84,
 };
 
 function shade(n, f) {
@@ -278,6 +279,31 @@ export class Scene2D {
     ctx.beginPath();
     ctx.moveTo(c2[0], c2[1]); ctx.lineTo(c3[0], c3[1]);
     ctx.lineTo(c3[0], c3[1] + ext); ctx.lineTo(c2[0], c2[1] + ext); ctx.closePath(); ctx.fill();
+    // soft reflection of the island in the water, just below the front corner
+    ctx.save();
+    ctx.globalAlpha = this.isDayNow ? 0.16 : 0.1;
+    ctx.fillStyle = shade(PAL.islandDark, this.isDayNow ? 1.1 : 0.7);
+    const rTop = c2[1] + ext;
+    ctx.beginPath();
+    ctx.moveTo(c1[0], rTop); ctx.lineTo(c2[0], rTop); ctx.lineTo(c2[0], rTop + ext * 1.3);
+    ctx.lineTo(c1[0], rTop + ext * 1.3); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // gentle horizontal shimmer bands on the water
+    ctx.save();
+    ctx.globalAlpha = this.isDayNow ? 0.12 : 0.07;
+    ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+    for (let s = 0; s < 4; s++) {
+      const yy = rTop + ext * 1.6 + s * this.unit * 3.5;
+      ctx.beginPath(); ctx.moveTo(cx - this.unit * (20 - s * 3), yy); ctx.lineTo(cx + this.unit * (20 - s * 3), yy); ctx.stroke();
+    }
+    ctx.restore();
+
+    // contact AO where the island meets the water
+    ctx.save();
+    ctx.globalAlpha = 0.18; ctx.strokeStyle = 'rgba(40,30,50,1)'; ctx.lineWidth = this.unit * 1.4;
+    ctx.beginPath(); ctx.moveTo(c1[0], c1[1] + ext); ctx.lineTo(c2[0], c2[1] + ext); ctx.lineTo(c3[0], c3[1] + ext); ctx.stroke();
+    ctx.restore();
+
     // grassy top
     const t1 = this.toScreen(a, a), t2 = this.toScreen(b, a), t3 = this.toScreen(b, b), t4 = this.toScreen(a, b);
     ctx.fillStyle = shade(PAL.island, this.isDayNow ? 1 : 0.62);
@@ -332,9 +358,15 @@ export class Scene2D {
     // outer face (what faces the camera) with a soft vertical light gradient
     const y0 = Math.min(ot1[1], ot2[1]), y1 = Math.max(of1[1], of2[1]);
     const g = ctx.createLinearGradient(0, y0, 0, y1);
-    g.addColorStop(0, shade(faceNum, dim * 1.07)); g.addColorStop(1, shade(faceNum, dim * 0.9));
+    // gentle gradient (soft Townscaper lighting, low contrast)
+    g.addColorStop(0, shade(faceNum, dim * 1.04)); g.addColorStop(1, shade(faceNum, dim * 0.93));
     ctx.fillStyle = g;
     quad(ctx, of1, of2, ot2, ot1);
+    // soft AO at the foot of the wall (where it meets the floor)
+    const ao = ctx.createLinearGradient(0, y1 - hpix * 0.28, 0, y1);
+    ao.addColorStop(0, 'rgba(60,45,55,0)'); ao.addColorStop(1, 'rgba(60,45,55,0.16)');
+    ctx.fillStyle = ao;
+    quad(ctx, of1, of2, [ot2[0], y1 - hpix * 0.28], [ot1[0], y1 - hpix * 0.28]);
 
     // top face (lightest) — gives the wall visible thickness
     ctx.fillStyle = shade(topNum, dim * 1.02);
