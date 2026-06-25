@@ -83,6 +83,32 @@ export class Scene2D {
   _poly(pts, close = true) { const c = this.ctx; c.beginPath(); c.moveTo(pts[0][0], pts[0][1]); for (let i = 1; i < pts.length; i++) c.lineTo(pts[i][0], pts[i][1]); if (close) c.closePath(); }
   _line(a, b) { const c = this.ctx; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); }
 
+  // --- hand-drawn ("sketchy") ink strokes -----------------------------------
+  // Deterministic jitter keyed on quantised coordinates so a static shape draws
+  // the SAME wobble every frame (no shimmer); moving props wobble gently.
+  _hash(x, y) { const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.545; return n - Math.floor(n); }
+  _jit(p, amp) {
+    const qx = Math.round(p[0] * 0.2), qy = Math.round(p[1] * 0.2);
+    return [p[0] + (this._hash(qx, qy) - 0.5) * amp, p[1] + (this._hash(qy + 9, qx + 4) - 0.5) * amp];
+  }
+  // wobbly stroke through pts (one bulged midpoint per edge)
+  _wstroke(pts, close = true, ampMul = 1) {
+    const c = this.ctx, amp = this.unit * 0.2 * ampMul, n = pts.length;
+    const segs = close ? n : n - 1;
+    c.beginPath();
+    const p0 = this._jit(pts[0], amp); c.moveTo(p0[0], p0[1]);
+    for (let s = 0; s < segs; s++) {
+      const a = pts[s], b = pts[(s + 1) % n];
+      const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
+      const off = (this._hash(Math.round((a[0] + b[0]) * 0.12), Math.round((a[1] + b[1]) * 0.12)) - 0.5) * amp * 1.6;
+      const mx = (a[0] + b[0]) / 2 - dy / len * off, my = (a[1] + b[1]) / 2 + dx / len * off;
+      const bj = this._jit(b, amp);
+      c.quadraticCurveTo(mx, my, bj[0], bj[1]);
+    }
+    c.stroke();
+  }
+  _wline(a, b, ampMul = 1) { this._wstroke([a, b], false, ampMul); }
+
   // --- public mutators ------------------------------------------------------
   initParticles(count = 700) {
     const N = this.N;
@@ -212,13 +238,13 @@ export class Scene2D {
     this._poly([c1, c2, [c2[0], c2[1] + ext], [c1[0], c1[1] + ext]]); ctx.fill();
     this._poly([c2, c3, [c3[0], c3[1] + ext], [c2[0], c2[1] + ext]]); ctx.fill();
     this._ink(1.1);
-    this._poly([c1, c2, c3, [c3[0], c3[1] + ext], [c2[0], c2[1] + ext], [c1[0], c1[1] + ext]]); ctx.stroke();
-    this._line(c2, [c2[0], c2[1] + ext]);
+    this._wstroke([c1, c2, c3, [c3[0], c3[1] + ext], [c2[0], c2[1] + ext], [c1[0], c1[1] + ext]]);
+    this._wline(c2, [c2[0], c2[1] + ext]);
     // island top
     const t1 = this.toScreen(a, a), t2 = this.toScreen(b, a), t3 = this.toScreen(b, b), t4 = this.toScreen(a, b);
     ctx.fillStyle = tint(PAL.island, this.isDayNow);
     this._poly([t1, t2, t3, t4]); ctx.fill();
-    this._ink(1.1); this._poly([t1, t2, t3, t4]); ctx.stroke();
+    this._ink(1.1); this._wstroke([t1, t2, t3, t4]);
   }
 
   _drawFloor(ctx) {
@@ -244,7 +270,7 @@ export class Scene2D {
     ctx.beginPath(); ctx.ellipse(cx, cy, this.unit * 10, this.unit * 5, 0, 0, TAU); ctx.fill();
     this._ink(0.8); ctx.beginPath(); ctx.ellipse(cx, cy, this.unit * 10, this.unit * 5, 0, 0, TAU); ctx.stroke();
     // floor outline
-    this._ink(1.2); this._floorPath(ctx); ctx.stroke();
+    this._ink(1.2); this._wstroke(this._floorPath(ctx));
   }
 
   _wall(ctx, ua, va, ub, vb, h, inU, inV, faceCol) {
@@ -256,8 +282,8 @@ export class Scene2D {
     ctx.fillStyle = tint(faceCol, this.isDayNow); this._poly([of1, of2, ot2, ot1]); ctx.fill();      // outer face
     ctx.fillStyle = tint(PAL.wall, this.isDayNow, 1.04); this._poly([ot1, ot2, it2, it1]); ctx.fill(); // top
     this._ink(1.1);
-    this._poly([of1, of2, ot2, ot1]); ctx.stroke();
-    this._poly([ot1, ot2, it2, it1]); ctx.stroke();
+    this._wstroke([of1, of2, ot2, ot1]);
+    this._wstroke([ot1, ot2, it2, it1]);
   }
   _drawWalls(ctx) {
     const N = this.N, H = this.unit * 6.4;
@@ -274,11 +300,11 @@ export class Scene2D {
     const c = [[f1[0], f1[1] - hLow], [f2[0], f2[1] - hLow], [f2[0], f2[1] - hHigh], [f1[0], f1[1] - hHigh]];
     ctx.fillStyle = this.windowOpen ? tint(PAL.glass, this.isDayNow) : tint(PAL.frame, this.isDayNow);
     this._poly(c); ctx.fill();
-    this._ink(1.1); this._poly(c); ctx.stroke();
+    this._ink(1.1); this._wstroke(c);
     // mullions
     this._ink(0.7);
-    this._line(mid(c[0], c[1], 0.5), mid(c[3], c[2], 0.5));
-    this._line(mid(c[0], c[3], 0.5), mid(c[1], c[2], 0.5));
+    this._wline(mid(c[0], c[1], 0.5), mid(c[3], c[2], 0.5));
+    this._wline(mid(c[0], c[3], 0.5), mid(c[1], c[2], 0.5));
   }
 
   // subtle ink contact shadow under props
@@ -299,8 +325,8 @@ export class Scene2D {
     ctx.fillStyle = tint(color, this.isDayNow, 0.82); this._poly([b3, b4, t4, t3]); ctx.fill();   // front
     ctx.fillStyle = tint(color, this.isDayNow, 1.06); this._poly([t1, t2, t3, t4]); ctx.fill();   // top
     this._ink(1);
-    this._poly([t1, t2, b2, b3, b4, t4]); ctx.stroke();   // silhouette
-    this._line(t2, t3); this._line(t4, t3); this._line(t3, b3);  // interior edges
+    this._wstroke([t1, t2, b2, b3, b4, t4]);              // silhouette
+    this._wline(t2, t3); this._wline(t4, t3); this._wline(t3, b3);  // interior edges
     return { t1, t2, t3, t4, b3, b4 };
   }
 
@@ -312,10 +338,10 @@ export class Scene2D {
     this._ink(0.7);
     if (it.type === 'shelf' || it.type === 'cabinet') {
       const rows = it.type === 'shelf' ? 3 : 2;
-      for (let s = 1; s <= rows; s++) this._line(mid(T.t4, T.b4, s / (rows + 1)), mid(T.t3, T.b3, s / (rows + 1)));
+      for (let s = 1; s <= rows; s++) this._wline(mid(T.t4, T.b4, s / (rows + 1)), mid(T.t3, T.b3, s / (rows + 1)));
     } else if (it.type === 'fridge') {
-      this._line(mid(T.t4, T.b4, 0.4), mid(T.t3, T.b3, 0.4));
-      this._line(mid(T.t3, T.b3, 0.15), mid(T.t3, T.b3, 0.6));
+      this._wline(mid(T.t4, T.b4, 0.4), mid(T.t3, T.b3, 0.4));
+      this._wline(mid(T.t3, T.b3, 0.15), mid(T.t3, T.b3, 0.6));
     }
   }
 
