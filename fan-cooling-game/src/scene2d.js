@@ -140,10 +140,11 @@ export class Scene2D {
     const d = this.heatImg.data;
     for (let j = 0; j < N; j++) {
       for (let i = 0; i < N; i++) {
-        const t = (Tfield[(i + 1) + (N + 2) * (j + 1)] - minT) / span;
-        const [r, g, b] = heatColor(Math.max(0, Math.min(1, t)));
+        const t = Math.max(0, Math.min(1, (Tfield[(i + 1) + (N + 2) * (j + 1)] - minT) / span));
+        const [r, g, b] = heatColor(t);
         const k = (i + j * N) * 4;
-        d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 110;
+        // near-transparent in the comfortable middle, only extremes tint the floor
+        d[k] = r; d[k + 1] = g; d[k + 2] = b; d[k + 3] = 18 + 150 * Math.abs(t - 0.5) * 2 * 0.5;
       }
     }
     this.heatCtx.putImageData(this.heatImg, 0, 0);
@@ -296,7 +297,7 @@ export class Scene2D {
     const AX = this.AX, AY = this.AY, c = this.c, N = this.N;
     const e = this.originX + (0.5 - c) * (AX.x + AY.x);
     const f = this.originY + (0.5 - c) * (AX.y + AY.y);
-    ctx.globalAlpha = this.isDayNow ? 0.85 : 0.6;
+    ctx.globalAlpha = this.isDayNow ? 0.7 : 0.5;
     ctx.imageSmoothingEnabled = true;
     ctx.setTransform(ctx.getTransform()); // keep dpr
     const cur = ctx.getTransform();
@@ -414,18 +415,28 @@ export class Scene2D {
     const top = (p) => [p[0], p[1] - hpix];
     const t1 = top(b1), t2 = top(b2), t3 = top(b3), t4 = top(b4);
     const dim = this.isDayNow ? 1 : 0.66;
+    const r = Math.min(this.unit * 0.9, hpix * 0.4);
+
+    // soft silhouette outline first (drawn slightly larger, semi-transparent) so
+    // every box has a gentle defined edge — the Townscaper "clean shape" read
+    ctx.strokeStyle = `rgba(64,48,52,${this.isDayNow ? 0.16 : 0.24})`;
+    ctx.lineJoin = 'round'; ctx.lineWidth = this.unit * 0.5;
+    roundedPoly(ctx, [t1, t2, b2, b3, b4, t4], r); ctx.stroke();
+
     // right face (b2-b3)
-    ctx.fillStyle = shade(color, dim * 0.82);
-    quad(ctx, b2, b3, t3, t2);
-    // left face (b3-b4) toward camera-left, a touch darker for AO
-    ctx.fillStyle = shade(color, dim * 0.72);
-    quad(ctx, b3, b4, t4, t3);
-    // top face, lightest
-    ctx.fillStyle = shade(color, dim * 1.08);
-    quad(ctx, t1, t2, t3, t4);
-    // soft top highlight
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    quad(ctx, t1, t2, mid(t2, t3, 0.5), mid(t1, t4, 0.5));
+    ctx.fillStyle = shade(color, dim * 0.84);
+    roundedPoly(ctx, [t2, b2, b3, t3], r * 0.7); ctx.fill();
+    // left/front face (b3-b4), a touch darker for soft AO
+    ctx.fillStyle = shade(color, dim * 0.73);
+    roundedPoly(ctx, [t3, b3, b4, t4], r * 0.7); ctx.fill();
+    // top face, lightest + rounded
+    const tg = ctx.createLinearGradient(t1[0], t1[1] - hpix * 0.3, t3[0], t3[1]);
+    tg.addColorStop(0, shade(color, dim * 1.14)); tg.addColorStop(1, shade(color, dim * 1.0));
+    ctx.fillStyle = tg;
+    roundedPoly(ctx, [t1, t2, t3, t4], r); ctx.fill();
+    // soft top sheen
+    ctx.fillStyle = `rgba(255,255,255,${this.isDayNow ? 0.14 : 0.07})`;
+    roundedPoly(ctx, [t1, t2, mid(t2, t3, 0.45), mid(t1, t4, 0.45)], r * 0.6); ctx.fill();
     return { t1, t2, t3, t4 };
   }
 
@@ -518,8 +529,8 @@ export class Scene2D {
       const tail = Math.min(3.5, sp * 90);
       const [x2, y2] = this.toScreen(gi, gj, lift);
       const [x1, y1] = this.toScreen(gi - this.partU[p] / sp * tail, gj - this.partV[p] / sp * tail, lift);
-      ctx.strokeStyle = `rgba(${col},${b * 0.65})`;
-      ctx.lineWidth = this.unit * 0.42;
+      ctx.strokeStyle = `rgba(${col},${b * 0.42})`;
+      ctx.lineWidth = this.unit * 0.28;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     }
   }
@@ -538,6 +549,23 @@ function quad(ctx, a, b, c, d) {
   ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.closePath(); ctx.fill();
 }
 function mid(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]; }
+// trace a polygon with rounded corners (soft "Townscaper" silhouettes)
+function roundedPoly(ctx, pts, r) {
+  const n = pts.length;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p0 = pts[(i - 1 + n) % n], p1 = pts[i], p2 = pts[(i + 1) % n];
+    const v1x = p0[0] - p1[0], v1y = p0[1] - p1[1];
+    const v2x = p2[0] - p1[0], v2y = p2[1] - p1[1];
+    const l1 = Math.hypot(v1x, v1y) || 1, l2 = Math.hypot(v2x, v2y) || 1;
+    const rr = Math.min(r, l1 / 2, l2 / 2);
+    const ax = p1[0] + (v1x / l1) * rr, ay = p1[1] + (v1y / l1) * rr;
+    const bx = p1[0] + (v2x / l2) * rr, by = p1[1] + (v2y / l2) * rr;
+    if (i === 0) ctx.moveTo(ax, ay); else ctx.lineTo(ax, ay);
+    ctx.quadraticCurveTo(p1[0], p1[1], bx, by);
+  }
+  ctx.closePath();
+}
 function roundedCapsule(ctx, cx, cy, rx, h) {
   ctx.beginPath();
   ctx.moveTo(cx - rx, cy);
