@@ -20,11 +20,11 @@ export class Game {
     this.fluid = new Fluid(N, { iters: 14, visc: 0.00002, diff: 0.00006 });
     this.scene.initParticles(800);
 
-    // window opening: a vertical span (in height) on a side wall
-    this.winA = Math.floor(N * 0.45);  // bottom of window
-    this.winB = Math.floor(N * 0.80);  // top of window
+    // window opening: a span along whichever wall it's mounted on
+    this.winA = Math.floor(N * 0.34);  // span start along the wall axis
+    this.winB = Math.floor(N * 0.66);  // span end
     this.windowOpen = true;
-    this.windowWall = 'left';           // 'left' (i=1) | 'right' (i=N)
+    this.windowWall = 'back';           // 'back' (-z, low j) | 'left' (-x, low i)
 
     // build state
     this.furniture = [];
@@ -32,8 +32,8 @@ export class Game {
     this.mode = 'fan';                   // 'fan' | 'furniture'
     this.furnitureType = 'shelf';
 
-    // person stands on the floor; comfort is sampled around chest height
-    const [pgi, pgj] = [Math.floor(N * 0.68), Math.floor(N * 0.16)];
+    // person location (grid cell)
+    const [pgi, pgj] = [Math.floor(N * 0.66), Math.floor(N * 0.36)];
     this.personGi = pgi; this.personGj = pgj;
     this.scene.setCharacterGrid(pgi, pgj);
 
@@ -187,96 +187,89 @@ export class Game {
     const sun = this.sunStrength();
     const idx = (i, j) => i + (N + 2) * j;
 
-    // 1) wall / floor / ceiling conduction toward outdoor (walls insulate, so
-    //    the coefficient is small).
-    const wallK = 0.16 * dt;
+    // 1) wall conduction: thin border ring leaks toward outdoor (walls insulate,
+    //    so the coefficient is small). Closed window insulates better.
+    const wallK = 0.18 * dt;
     for (let i = 1; i <= N; i++) {
-      f.T[idx(i, 1)] += (Tout - f.T[idx(i, 1)]) * wallK;
-      f.T[idx(i, N)] += (Tout - f.T[idx(i, N)]) * wallK;
-      f.T[idx(1, i)] += (Tout - f.T[idx(1, i)]) * wallK;
-      f.T[idx(N, i)] += (Tout - f.T[idx(N, i)]) * wallK;
+      f.T[idx(i, 1)]     += (Tout - f.T[idx(i, 1)]) * wallK;
+      f.T[idx(i, N)]     += (Tout - f.T[idx(i, N)]) * wallK;
+      f.T[idx(1, i)]     += (Tout - f.T[idx(1, i)]) * wallK;
+      f.T[idx(N, i)]     += (Tout - f.T[idx(N, i)]) * wallK;
     }
 
-    // 2) window on a side wall (vertical span winA..winB in height). When open it
-    //    exchanges air with outside and blows a breeze inward; cool incoming air
-    //    then sinks under its own (negative) buoyancy. Left wall inward = +i,
-    //    right wall inward = -i.
+    // 2) window/door: a band along the chosen wall. When open it strongly
+    //    exchanges air with outside and lets a gentle breeze blow inward; when
+    //    closed it insulates and blocks the sun. The inward normal depends on
+    //    which wall the opening is mounted on.
     const open = this.windowOpen ? 1 : 0;
     const exch = (0.9 * dt) * open;
-    const breeze = 8.0 * open;
+    const breeze = 9.0 * open;
     const outdoorBreeze = this.weather ? Math.min(1.5, (this.weather.wind || 5) / 12) : 0.6;
-    const left = this.windowWall !== 'right';
-    const nx = left ? 1 : -1;
-    const wallI = left ? 1 : N;
-    for (let j = this.winA; j <= this.winB; j++) {
-      for (let d = 0; d < 3; d++) {
-        const i = left ? wallI + d : wallI - d;
+    const back = this.windowWall === 'back';
+    for (let a = this.winA; a <= this.winB; a++) {
+      for (let d = 1; d <= 3; d++) {
+        // back wall: low j edge, inward = +j ; left wall: low i edge, inward = +i
+        const i = back ? a : d;
+        const j = back ? d : a;
         const k = idx(i, j);
         f.T[k] += (Tout - f.T[k]) * exch;
-        f.u0[k] += nx * breeze * outdoorBreeze;
+        if (back) f.v0[k] += breeze * outdoorBreeze;
+        else      f.u0[k] += breeze * outdoorBreeze;
       }
     }
 
-    // 3) solar gain: sunlight pours through the window onto the area just inside
-    //    it and the floor below. A closed window (curtains) blocks most of it.
-    const sunHeat = sun * 8.0 * dt * (0.2 + 0.8 * open);
+    // 3) solar gain: a sunny patch on the floor just inside the window during
+    //    daytime. A closed window (curtains drawn) blocks most of it.
+    const sunHeat = sun * 9.0 * dt * (0.25 + 0.75 * open);
     if (sun > 0) {
-      const ci = left ? 8 : N - 8;
-      for (let j = 2; j <= this.winB; j++) {
-        for (let d = 1; d <= 12; d++) {
-          const i = left ? 1 + d : N - d;
-          const fall = (1 - d / 13) * (j <= this.winA ? 0.5 : 1);
-          f.T0[idx(i, j)] += sunHeat * Math.max(0.15, fall) * 0.4;
+      const ca = (this.winA + this.winB) / 2;
+      const halfSpan = (this.winB - this.winA) / 2 + 1;
+      for (let a = this.winA + 4; a <= this.winB - 4; a++) {
+        for (let d = 6; d <= 14; d++) {
+          const i = back ? a : d;
+          const j = back ? d : a;
+          const fall = 1 - Math.abs(a - ca) / halfSpan;
+          f.T0[idx(i, j)] += sunHeat * Math.max(0.2, fall);
         }
       }
     }
 
-    // 4) buoyancy: warm air rises, cool air sinks. Force on the vertical (v)
-    //    velocity is proportional to how much warmer a cell is than the room
-    //    average. This is what fluid.js needs to make convection plausible.
-    const ref = this.indoorAvg || 24;
-    const BUOY = 2.2;
-    for (let j = 1; j <= N; j++) {
-      for (let i = 1; i <= N; i++) {
-        const k = idx(i, j);
-        if (f.solid[k]) continue;
-        const dT = f.T[k] - ref;
-        f.v0[k] += BUOY * Math.max(-3, Math.min(3, dT)) * dt;
+    // 4) ambient internal gain (a warm body) keeps the room from going cold on
+    //    its own, so ventilation actually matters.
+    const baseGain = 0.016 * dt;
+    for (let j = Math.floor(N * 0.3); j <= Math.floor(N * 0.7); j++) {
+      for (let i = Math.floor(N * 0.3); i <= Math.floor(N * 0.7); i++) {
+        f.T0[idx(i, j)] += baseGain;
       }
     }
 
-    // 5) ambient internal gain near the floor (appliances, a warm body).
-    const baseGain = 0.02 * dt;
-    for (let i = Math.floor(N * 0.2); i <= Math.floor(N * 0.8); i++) {
-      f.T0[idx(i, 2)] += baseGain;
-    }
-
-    // 6) appliances (fridge) dump heat into open cells around their floor box.
-    const cpu = N / this.scene.roomSize;
+    // 5) appliances (fridge/oven furniture) dump heat into the open cells just
+    //    around their footprint.
+    const cellsPerUnit = N / this.scene.roomSize;
     for (const item of this.furniture) {
       if (!item.heat) continue;
-      const hw = Math.round((item.w * cpu) / 2) + 1;
-      const hh = Math.round(item.hCells) + 1;
-      for (let j = 1; j <= hh; j++) {
+      const hw = Math.round((item.w * cellsPerUnit) / 2) + 1;
+      const hd = Math.round((item.d * cellsPerUnit) / 2) + 1;
+      for (let j = item.gj - hd; j <= item.gj + hd; j++) {
         for (let i = item.gi - hw; i <= item.gi + hw; i++) {
-          if (i < 1 || i > N || j > N) continue;
+          if (i < 1 || i > N || j < 1 || j > N) continue;
           const k = idx(i, j);
-          if (!f.solid[k]) f.T0[k] += 2.2 * dt;
+          if (!f.solid[k]) f.T0[k] += 2.6 * dt;
         }
       }
     }
   }
 
-  // Rebuild the obstacle mask. In the side view furniture sits on the floor, so
-  // each piece blocks a column of cells from the floor up to its height.
+  // Rebuild the fluid obstacle mask from the current furniture footprints so
+  // air must flow around them (this is what makes placement matter).
   rebuildSolid() {
     const f = this.fluid;
     f.solid.fill(0);
-    const cpu = N / this.scene.roomSize;
+    const cellsPerUnit = N / this.scene.roomSize;
     for (const item of this.furniture) {
-      const hw = (item.w * cpu) / 2;
-      const top = Math.round(item.hCells);
-      for (let j = 1; j <= Math.min(N, top); j++) {
+      const hw = (item.w * cellsPerUnit) / 2;
+      const hd = (item.d * cellsPerUnit) / 2;
+      for (let j = Math.round(item.gj - hd); j <= Math.round(item.gj + hd); j++) {
         for (let i = Math.round(item.gi - hw); i <= Math.round(item.gi + hw); i++) {
           if (i >= 1 && i <= N && j >= 1 && j <= N) f.solid[i + (N + 2) * j] = 1;
         }
