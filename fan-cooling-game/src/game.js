@@ -5,7 +5,7 @@
 // (incompressible, mass-conserving) via src/fluid.js.
 
 import { Fluid } from './fluid.js';
-import { Scene3D } from './scene.js';
+import { Scene2D } from './scene2d.js';
 import { fetchWeather } from './weather.js';
 
 const N = 64;
@@ -15,15 +15,22 @@ const COMFORT_BAND = 6;        // °C half-width that still scores points
 
 export class Game {
   constructor(canvas) {
-    this.scene = new Scene3D(canvas);
+    this.scene = new Scene2D(canvas);
     this.scene.N = N;
     this.fluid = new Fluid(N, { iters: 14, visc: 0.00002, diff: 0.00006 });
-    this.scene.initParticles(1400);
+    this.scene.initParticles(800);
 
-    // window opening: a span on the back wall (top of grid, high j)
-    this.winI0 = Math.floor(N * 0.34);
-    this.winI1 = Math.floor(N * 0.66);
+    // window opening: a span along whichever wall it's mounted on
+    this.winA = Math.floor(N * 0.34);  // span start along the wall axis
+    this.winB = Math.floor(N * 0.66);  // span end
     this.windowOpen = true;
+    this.windowWall = 'back';           // 'back' (-z, low j) | 'left' (-x, low i)
+
+    // build state
+    this.furniture = [];
+    this.maxFurniture = 6;
+    this.mode = 'fan';                   // 'fan' | 'furniture'
+    this.furnitureType = 'shelf';
 
     // person location (grid cell)
     const [pgi, pgj] = [Math.floor(N * 0.66), Math.floor(N * 0.36)];
@@ -89,6 +96,7 @@ export class Game {
     if (this.fans.length >= this.maxFans) return null;
     gi = Math.max(3, Math.min(N - 2, Math.round(gi)));
     gj = Math.max(3, Math.min(N - 2, Math.round(gj)));
+    if (this.fluid.solid[gi + (N + 2) * gj]) return null; // don't place inside furniture
     const angle = 0;
     const sFan = this.scene.createFan(gi, gj, angle);
     const fan = { sFan, gi, gj, angle, power: 1 };
@@ -121,7 +129,43 @@ export class Game {
     this.selected = null;
   }
 
+  // --- furniture / build mode ----------------------------------------------
+
+  setMode(m) { this.mode = m; if (m !== 'fan') { this.selected = null; this._emit(); } }
+  setFurnitureType(t) { this.furnitureType = t; }
+
+  placeFurniture(type, gi, gj) {
+    if (this.furniture.length >= this.maxFurniture) return null;
+    gi = Math.max(4, Math.min(N - 3, Math.round(gi)));
+    gj = Math.max(4, Math.min(N - 3, Math.round(gj)));
+    const item = this.scene.createFurniture(type, gi, gj);
+    this.furniture.push(item);
+    this.rebuildSolid();
+    if (this.onStats) this._emit();
+    return item;
+  }
+
+  removeFurnitureItem(item) {
+    this.scene.removeFurniture(item);
+    this.furniture = this.furniture.filter((f) => f !== item);
+    this.rebuildSolid();
+    if (this.onStats) this._emit();
+  }
+
+  setWindowWall(wall) {
+    this.windowWall = wall;
+    this.scene.setWindowWall(wall);
+    if (this.onStats) this._emit();
+  }
+
   pickAt(x, y) {
+    if (this.mode === 'furniture') {
+      const it = this.scene.pickFurniture(x, y);
+      if (it) { this.removeFurnitureItem(it); return 'remove-furniture'; }
+      const cell = this.scene.pickFloor(x, y);
+      if (cell) { this.placeFurniture(this.furnitureType, cell[0], cell[1]); return 'place-furniture'; }
+      return null;
+    }
     const fan = this.scene.pickFan(x, y);
     if (fan) {
       const g = this.fans.find((f) => f.sFan === fan);
@@ -153,43 +197,82 @@ export class Game {
       f.T[idx(N, i)]     += (Tout - f.T[idx(N, i)]) * wallK;
     }
 
-    // 2) window: a band near the back wall. When open it strongly exchanges air
-    //    with outside and lets a gentle breeze in; when closed it insulates and
-    //    blocks the sun.
+    // 2) window/door: a band along the chosen wall. When open it strongly
+    //    exchanges air with outside and lets a gentle breeze blow inward; when
+    //    closed it insulates and blocks the sun. The inward normal depends on
+    //    which wall the opening is mounted on.
     const open = this.windowOpen ? 1 : 0;
     const exch = (0.9 * dt) * open;
-    const breeze = 9.0 * open;       // inward push (toward lower j)
+    const breeze = 9.0 * open;
     const outdoorBreeze = this.weather ? Math.min(1.5, (this.weather.wind || 5) / 12) : 0.6;
-    for (let i = this.winI0; i <= this.winI1; i++) {
-      for (let dj = 0; dj < 3; dj++) {
-        const j = N - dj;
+    const back = this.windowWall === 'back';
+    for (let a = this.winA; a <= this.winB; a++) {
+      for (let d = 1; d <= 3; d++) {
+        // back wall: low j edge, inward = +j ; left wall: low i edge, inward = +i
+        const i = back ? a : d;
+        const j = back ? d : a;
         const k = idx(i, j);
         f.T[k] += (Tout - f.T[k]) * exch;
-        // push air into the room from the window
-        f.v0[k] += -breeze * outdoorBreeze;
+        if (back) f.v0[k] += breeze * outdoorBreeze;
+        else      f.u0[k] += breeze * outdoorBreeze;
       }
     }
 
-    // 3) solar gain: a sunny patch on the floor in front of the window during
-    //    the day. Closed window (curtains) blocks most of it.
+    // 3) solar gain: a sunny patch on the floor just inside the window during
+    //    daytime. A closed window (curtains drawn) blocks most of it.
     const sunHeat = sun * 9.0 * dt * (0.25 + 0.75 * open);
     if (sun > 0) {
-      const ci = (this.winI0 + this.winI1) / 2;
-      for (let i = this.winI0 + 4; i <= this.winI1 - 4; i++) {
-        for (let j = N - 14; j <= N - 6; j++) {
-          const k = idx(i, j);
-          const fall = 1 - Math.abs(i - ci) / ((this.winI1 - this.winI0) / 2 + 1);
-          f.T0[k] += sunHeat * Math.max(0.2, fall);
+      const ca = (this.winA + this.winB) / 2;
+      const halfSpan = (this.winB - this.winA) / 2 + 1;
+      for (let a = this.winA + 4; a <= this.winB - 4; a++) {
+        for (let d = 6; d <= 14; d++) {
+          const i = back ? a : d;
+          const j = back ? d : a;
+          const fall = 1 - Math.abs(a - ca) / halfSpan;
+          f.T0[idx(i, j)] += sunHeat * Math.max(0.2, fall);
         }
       }
     }
 
-    // 4) ambient internal gain (appliances + a warm body) keeps the room from
-    //    going cold on its own, so ventilation actually matters.
-    const baseGain = 0.8 * dt;
-    for (let j = N * 0.3; j <= N * 0.7; j++) {
-      for (let i = N * 0.3; i <= N * 0.7; i++) {
-        f.T0[idx(Math.floor(i), Math.floor(j))] += baseGain * 0.02;
+    // 4) ambient internal gain (a warm body) keeps the room from going cold on
+    //    its own, so ventilation actually matters.
+    const baseGain = 0.016 * dt;
+    for (let j = Math.floor(N * 0.3); j <= Math.floor(N * 0.7); j++) {
+      for (let i = Math.floor(N * 0.3); i <= Math.floor(N * 0.7); i++) {
+        f.T0[idx(i, j)] += baseGain;
+      }
+    }
+
+    // 5) appliances (fridge/oven furniture) dump heat into the open cells just
+    //    around their footprint.
+    const cellsPerUnit = N / this.scene.roomSize;
+    for (const item of this.furniture) {
+      if (!item.heat) continue;
+      const hw = Math.round((item.w * cellsPerUnit) / 2) + 1;
+      const hd = Math.round((item.d * cellsPerUnit) / 2) + 1;
+      for (let j = item.gj - hd; j <= item.gj + hd; j++) {
+        for (let i = item.gi - hw; i <= item.gi + hw; i++) {
+          if (i < 1 || i > N || j < 1 || j > N) continue;
+          const k = idx(i, j);
+          if (!f.solid[k]) f.T0[k] += 2.6 * dt;
+        }
+      }
+    }
+  }
+
+  // Rebuild the fluid obstacle mask from the current furniture footprints so
+  // air must flow around them (this is what makes placement matter).
+  rebuildSolid() {
+    const f = this.fluid;
+    f.solid.fill(0);
+    const cellsPerUnit = N / this.scene.roomSize;
+    for (const item of this.furniture) {
+      const hw = (item.w * cellsPerUnit) / 2;
+      const hd = (item.d * cellsPerUnit) / 2;
+      for (let j = Math.round(item.gj - hd); j <= Math.round(item.gj + hd); j++) {
+        for (let i = Math.round(item.gi - hw); i <= Math.round(item.gi + hw); i++) {
+          if (i >= 1 && i <= N && j >= 1 && j <= N) f.solid[i + (N + 2) * j] = 1;
+        }
       }
     }
   }
@@ -276,7 +359,7 @@ export class Game {
     this.scene.updateHeat(this.fluid.T, minT, maxT);
     this.scene.updateParticles(this.fluid, dt);
     this.scene.setTimeOfDay(this.isDay(), 0.4 + this.sunStrength());
-    this.scene.windowPane.material.opacity = this.windowOpen ? 0.12 : 0.5;
+    this.scene.setWindowOpen(this.windowOpen);
     const hotness = Math.max(0, Math.min(1, (this.feelsLike - 24) / 8));
     this.scene.setCharacterHot(hotness);
     this.scene.update(dt, this._t);
@@ -298,8 +381,13 @@ export class Game {
       hour: this.simHour,
       isDay: this.isDay(),
       windowOpen: this.windowOpen,
+      windowWall: this.windowWall,
       fans: this.fans.length,
       maxFans: this.maxFans,
+      furniture: this.furniture.length,
+      maxFurniture: this.maxFurniture,
+      mode: this.mode,
+      furnitureType: this.furnitureType,
       selected: this.selected
         ? { angle: this.selected.angle, power: this.selected.power }
         : null,

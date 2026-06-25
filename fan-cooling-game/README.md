@@ -1,11 +1,12 @@
 # 🌬️ Fan Feng Shui
 
 A chill little browser game for a sweltering British summer with **no air-con**.
-You've only got fans — place them, aim them, and discover the layout that keeps
-you coolest, by day and by night.
+You've only got fans — place them, aim them, arrange your furniture, and discover
+the layout that keeps you coolest, by day and by night.
 
-> Cel-shaded ("三渲二" / toon) visuals · springy, casual feel · a real
-> incompressible-fluid airflow simulation under the hood.
+> Soft pastel **isometric 2D** visuals in the spirit of *Townscaper* (original
+> art, not copied assets) · springy, casual feel · a real incompressible-fluid
+> airflow simulation under the hood.
 
 ## Play
 
@@ -22,11 +23,14 @@ Three.js is vendored in `vendor/` so the game runs fully offline.
 
 ## How to play
 
-- 🖱️ **Tap the floor** to drop a fan (up to 4). **Drag from a fan** to aim it.
-- 🎚️ Select a fan to tune its **power**, rotate its aim, or remove it.
-- 🪟 Toggle the **window**. At night, open it and blow cool outside air across
-  the room. By day the sun heats the room through the glass — close up and let
-  the breeze chill your skin instead.
+- 🖱️ **Fans tab:** tap the floor to drop a fan (up to 4). **Drag from a fan**
+  to aim it; select one to tune its **power** or remove it.
+- 🛋️ **Furniture tab:** place a shelf, table, cabinet or fridge. Furniture is a
+  real **CFD obstacle** — it blocks and redirects airflow, so where you put it
+  matters. The fridge also leaks heat. Tap a piece to remove it.
+- 🪟 Toggle the **window** and choose which **wall** (back/left) it's on. At
+  night, open it and blow cool outside air across the room. By day the sun heats
+  the room through the glass — close up and let the breeze chill your skin.
 - ☀️🌙 Scrub the **time of day** or let the clock run. Outdoor temperature,
   daylight and solar gain all change with the hour.
 - 🌍 Type a **city** to pull that location's live temperature.
@@ -55,27 +59,32 @@ follows the sun's elevation, and a small ambient internal gain. Comfort uses a
 temperature (~33 °C); blow air hotter than that and a fan actually makes you
 feel *worse*, just like in real life.
 
-## Visual style — cel shading
+## Visual style — soft isometric (Townscaper-inspired)
 
-The "三渲二" look is built from the three classic ingredients
-([`src/scene.js`](src/scene.js)):
+Everything is drawn on a plain 2D `<canvas>` in an isometric projection, styled
+after the soft, rounded, pastel, ambient-occluded look of *Townscaper* — but
+recreated entirely with original drawing code, **not** copied assets
+([`src/scene2d.js`](src/scene2d.js)):
 
-1. **Banded diffuse** — `MeshToonMaterial` with a stepped gradient map.
-2. **Ink outlines** — inverted-hull back-face pass.
-3. **Rim light** — a Fresnel term injected into the toon shader.
+- A single linear transform maps the square CFD grid onto the isometric floor,
+  so the temperature field and airflow drop straight in.
+- Soft contact-shadow "AO" under every prop, gentle vertical light gradients on
+  walls and boxes, a pastel gradient sky, and a day/night tint pass.
+- Airflow is drawn as short **wind streaks** along the local flow direction, so
+  you can literally see the vortices and recirculation the fluid solver makes.
 
 ## Tech
 
-Vanilla ES modules + [Three.js](https://threejs.org/) (vendored). No build step.
-Weather from the free, key-less [Open-Meteo](https://open-meteo.com/) API, with
-an offline fallback so it always runs.
+Vanilla ES modules + 2D Canvas. **No build step, no dependencies.** Weather from
+the free, key-less [Open-Meteo](https://open-meteo.com/) API, with an offline
+fallback so it always runs.
 
 ## Files
 
 | file | what |
 |------|------|
-| `src/fluid.js` | the stable-fluids CFD solver (velocity + temperature) |
-| `src/game.js`  | weather → heat boundaries → fans → comfort scoring |
-| `src/scene.js` | Three.js cel-shaded room, heat-map floor, airflow particles |
+| `src/fluid.js`   | the stable-fluids CFD solver (velocity + temperature) |
+| `src/game.js`    | weather → heat boundaries → fans/furniture → comfort scoring |
+| `src/scene2d.js` | isometric 2D Townscaper-style renderer (room, heat, airflow) |
 | `src/weather.js` | Open-Meteo fetch + geocoding, offline fallback |
-| `src/ui.js`    | DOM controls and the main loop |
+| `src/ui.js`      | DOM controls and the main loop |

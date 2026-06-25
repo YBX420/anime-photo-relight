@@ -12,8 +12,8 @@ const el = {
   outdoor: $('outdoor'), indoor: $('indoor'), feels: $('feels'),
   airspeed: $('airspeed'), comfortBar: $('comfortBar'), comfortPct: $('comfortPct'),
   score: $('score'), clock: $('clock'), place: $('place'), dayico: $('dayico'),
-  fanCount: $('fanCount'), winBtn: $('winBtn'), powerRow: $('powerRow'),
-  power: $('power'), removeBtn: $('removeBtn'), tip: $('tip'),
+  fanCount: $('fanCount'), furnCount: $('furnCount'), winBtn: $('winBtn'),
+  powerRow: $('powerRow'), power: $('power'), removeBtn: $('removeBtn'), tip: $('tip'),
 };
 
 function fmt(t) { return (Math.round(t * 10) / 10).toFixed(1); }
@@ -37,6 +37,7 @@ game.onStats = (s) => {
   el.dayico.textContent = s.isDay ? '☀️' : '🌙';
   el.place.textContent = (s.place || '—') + (s.offline ? ' (offline)' : '');
   el.fanCount.textContent = `${s.fans}/${s.maxFans}`;
+  if (el.furnCount) el.furnCount.textContent = `${s.furniture}/${s.maxFurniture}`;
   el.winBtn.textContent = s.windowOpen ? '🪟 Window: OPEN' : '🪟 Window: CLOSED';
   el.winBtn.classList.toggle('on', s.windowOpen);
   if (s.selected) {
@@ -80,8 +81,34 @@ $('rotR').onclick = () => game.rotateSelected(Math.PI / 12);
 el.removeBtn.onclick = () => game.removeSelected();
 el.winBtn.onclick = () => game.toggleWindow();
 el.power.oninput = (e) => game.setSelectedPower(parseFloat(e.target.value));
-$('viewL').onclick = () => game.scene.rotateView(-1);
-$('viewR').onclick = () => game.scene.rotateView(1);
+
+// window-wall selector
+function setWall(wall) {
+  game.setWindowWall(wall);
+  $('wallBack').classList.toggle('on', wall === 'back');
+  $('wallLeft').classList.toggle('on', wall === 'left');
+}
+$('wallBack').onclick = () => setWall('back');
+$('wallLeft').onclick = () => setWall('left');
+
+// build-mode tabs
+function setMode(mode) {
+  game.setMode(mode);
+  $('tabFan').classList.toggle('on', mode === 'fan');
+  $('tabFurn').classList.toggle('on', mode === 'furniture');
+  $('fanPanel').style.display = mode === 'fan' ? '' : 'none';
+  $('furnPanel').style.display = mode === 'furniture' ? '' : 'none';
+}
+$('tabFan').onclick = () => setMode('fan');
+$('tabFurn').onclick = () => setMode('furniture');
+
+// furniture picker
+document.querySelectorAll('.furn').forEach((btn) => {
+  btn.onclick = () => {
+    game.setFurnitureType(btn.dataset.furn);
+    document.querySelectorAll('.furn').forEach((b) => b.classList.toggle('on', b === btn));
+  };
+});
 
 // time controls
 const timeSlider = $('time');

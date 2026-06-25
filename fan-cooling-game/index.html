@@ -6,13 +6,6 @@
   <title>Fan Feng Shui — keep cool in the British heat 🌬️</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🌬️</text></svg>" />
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "./vendor/three.module.js"
-    }
-  }
-  </script>
 </head>
 <body>
   <canvas id="view"></canvas>
@@ -55,25 +48,44 @@
     <div class="card">
       <div class="card-title">Room</div>
       <button id="winBtn" class="wide on">🪟 Window: OPEN</button>
-      <div class="row view-row">
-        <span class="lbl">View</span>
-        <button id="viewL">⟲</button>
-        <button id="viewR">⟳</button>
+      <div class="row">
+        <span class="lbl">Wall</span>
+        <button id="wallBack" class="seg on">Back</button>
+        <button id="wallLeft" class="seg">Left</button>
       </div>
     </div>
 
     <div class="card">
-      <div class="card-title">Fan <span id="fanCount" class="muted">0/4</span></div>
-      <div class="hint">Tap the floor to drop a fan. Drag from a fan to aim it.</div>
-      <div class="row">
-        <span class="lbl">Aim</span>
-        <button id="rotL">⟲</button>
-        <button id="rotR">⟳</button>
-        <button id="removeBtn" class="danger">🗑 Remove</button>
+      <div class="card-title">Build</div>
+      <div class="row tabs">
+        <button id="tabFan" class="seg on">🌀 Fans</button>
+        <button id="tabFurn" class="seg">🛋 Furniture</button>
       </div>
-      <div id="powerRow" class="row" style="display:none">
-        <span class="lbl">Power</span>
-        <input id="power" type="range" min="0.2" max="1.6" step="0.1" value="1" />
+
+      <div id="fanPanel">
+        <div class="card-title small-title">Fan <span id="fanCount" class="muted">0/4</span></div>
+        <div class="hint">Tap the floor to drop a fan. Drag from a fan to aim it.</div>
+        <div class="row">
+          <span class="lbl">Aim</span>
+          <button id="rotL">⟲</button>
+          <button id="rotR">⟳</button>
+          <button id="removeBtn" class="danger">🗑 Remove</button>
+        </div>
+        <div id="powerRow" class="row" style="display:none">
+          <span class="lbl">Power</span>
+          <input id="power" type="range" min="0.2" max="1.6" step="0.1" value="1" />
+        </div>
+      </div>
+
+      <div id="furnPanel" style="display:none">
+        <div class="card-title small-title">Furniture <span id="furnCount" class="muted">0/6</span></div>
+        <div class="hint">Pick a piece, tap the floor to place. Tap a piece to remove. Furniture blocks and redirects airflow.</div>
+        <div class="furn-grid">
+          <button class="furn seg on" data-furn="shelf">📚 Shelf</button>
+          <button class="furn seg" data-furn="table">🪑 Table</button>
+          <button class="furn seg" data-furn="cabinet">🗄 Cabinet</button>
+          <button class="furn seg" data-furn="fridge">🧊 Fridge🔥</button>
+        </div>
       </div>
     </div>
   </aside>

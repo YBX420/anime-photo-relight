@@ -77,6 +77,13 @@ button.wide { width: 100%; }
 button.on { background: linear-gradient(180deg, #d6f5d8, #b6ecbb); }
 button.danger { background: #ffe0e0; color: #c0392b; margin-left: auto; }
 
+button.seg { flex: 1; background: #f4efe6; box-shadow: 0 2px 0 rgba(40,30,60,.12); padding: 8px 8px; font-size: 13px; }
+button.seg.on { background: linear-gradient(180deg, #ffd9c4, var(--accent)); color: #fff; box-shadow: 0 3px 0 #d96a3f; }
+.tabs { gap: 8px; }
+.small-title { font-size: 13px; opacity: .8; margin-top: 2px; }
+.furn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.furn-grid .furn { width: 100%; }
+
 input[type="range"] { flex: 1; accent-color: var(--accent); }
 input[type="text"], #locInput {
   flex: 1; min-width: 0; font-family: inherit; font-size: 14px;
