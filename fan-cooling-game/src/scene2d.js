@@ -105,30 +105,48 @@ export class Scene2D {
     const qx = Math.round(p[0] * 0.2), qy = Math.round(p[1] * 0.2);
     return [p[0] + (this._hash(qx, qy) - 0.5) * amp, p[1] + (this._hash(qy + 9, qx + 4) - 0.5) * amp];
   }
-  // wobbly stroke through pts (one bulged midpoint per edge) with slight weight
-  // variation and a small pen overshoot at open-stroke ends.
+  // hand-drawn stroke: each edge is subdivided by length into several sub-points
+  // that bow gently sideways (corners pinned, mid-edge bulges), so long borders
+  // curve softly instead of reading as dead-straight lines. Slight weight
+  // variation + a small pen overshoot on open strokes.
   _wstroke(pts, close = true, ampMul = 1) {
-    const c = this.ctx, amp = this.unit * 0.2 * ampMul, n = pts.length;
+    const c = this.ctx, amp = this.unit * 0.42 * ampMul, n = pts.length;
     const segs = close ? n : n - 1;
     const baseLw = c.lineWidth;
     c.lineWidth = baseLw * (0.82 + this._hash(Math.round(pts[0][0]), Math.round(pts[0][1])) * 0.42);
-    c.beginPath();
-    let p0 = this._jit(pts[0], amp);
-    if (!close) { // overshoot the start a touch backwards
-      const a = pts[0], b = pts[1] || pts[0]; const dx = a[0] - b[0], dy = a[1] - b[1], l = Math.hypot(dx, dy) || 1;
-      p0 = [p0[0] + dx / l * this.unit * 0.35, p0[1] + dy / l * this.unit * 0.35];
-    }
-    c.moveTo(p0[0], p0[1]);
+
+    // build a dense, sideways-bowed sample list
+    const samp = [];
     for (let s = 0; s < segs; s++) {
       const a = pts[s], b = pts[(s + 1) % n];
       const dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy) || 1;
-      const off = (this._hash(Math.round((a[0] + b[0]) * 0.12), Math.round((a[1] + b[1]) * 0.12)) - 0.5) * amp * 1.6;
-      const mx = (a[0] + b[0]) / 2 - dy / len * off, my = (a[1] + b[1]) / 2 + dx / len * off;
-      let bj = this._jit(b, amp);
-      if (!close && s === segs - 1) bj = [bj[0] + dx / len * this.unit * 0.35, bj[1] + dy / len * this.unit * 0.35]; // overshoot end
-      c.quadraticCurveTo(mx, my, bj[0], bj[1]);
+      const sub = Math.max(1, Math.min(8, Math.round(len / (this.unit * 4.5))));
+      const nx = -dy / len, ny = dx / len;       // unit perpendicular
+      for (let k = 0; k < sub; k++) {
+        const t = k / sub;
+        const h = this._hash(Math.round(a[0] * 0.1) + s * 7 + k * 13, Math.round(a[1] * 0.1) + k * 5);
+        const off = (h - 0.5) * amp * Math.sin(Math.PI * t); // 0 at the corner, max mid-edge
+        samp.push([a[0] + dx * t + nx * off, a[1] + dy * t + ny * off]);
+      }
     }
-    if (close) c.closePath();
+    if (!close) samp.push(this._jit(pts[n - 1], amp * 0.4));
+
+    // overshoot open-stroke ends along their tangents
+    if (!close && samp.length > 1) {
+      const e = (i, j, sign) => { const dx = samp[i][0] - samp[j][0], dy = samp[i][1] - samp[j][1], l = Math.hypot(dx, dy) || 1; return [samp[i][0] + sign * dx / l * this.unit * 0.4, samp[i][1] + sign * dy / l * this.unit * 0.4]; };
+      samp[0] = e(0, 1, 1); samp[samp.length - 1] = e(samp.length - 1, samp.length - 2, 1);
+    }
+
+    // draw a smooth curve through the samples (quadratic via midpoints)
+    c.beginPath();
+    c.moveTo(samp[0][0], samp[0][1]);
+    const m = close ? samp.length : samp.length - 1;
+    for (let i = 0; i < m; i++) {
+      const cur = samp[i % samp.length], nxt = samp[(i + 1) % samp.length];
+      const mx = (cur[0] + nxt[0]) / 2, my = (cur[1] + nxt[1]) / 2;
+      c.quadraticCurveTo(cur[0], cur[1], mx, my);
+    }
+    if (close) c.closePath(); else c.lineTo(samp[samp.length - 1][0], samp[samp.length - 1][1]);
     c.stroke();
     c.lineWidth = baseLw;
   }
