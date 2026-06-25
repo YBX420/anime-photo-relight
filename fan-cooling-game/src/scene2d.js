@@ -318,35 +318,54 @@ export class Scene2D {
     ctx.restore();
   }
 
-  // faceNum / topNum are numeric colours; dim folds in day/night + which wall
-  _wallQuad(ctx, ua, va, ub, vb, hpix, faceNum, topNum, dim) {
-    const f1 = this.toScreen(ua, va), f2 = this.toScreen(ub, vb);
-    const t1 = [f1[0], f1[1] - hpix], t2 = [f2[0], f2[1] - hpix];
-    const y0 = Math.min(t1[1], t2[1]), y1 = Math.max(f1[1], f2[1]);
-    // face with a soft vertical gradient (lighter at top = soft light)
+  // A chunky wall along an edge, with a thick top face for a soft solid read.
+  // inwardU/inwardV = direction (in grid units) toward the room interior.
+  _wallQuad(ctx, ua, va, ub, vb, hpix, inwardU, inwardV, faceNum, topNum, dim) {
+    const wt = 1.7; // wall thickness in grid cells
+    const of1 = this.toScreen(ua, va), of2 = this.toScreen(ub, vb);
+    const in1 = this.toScreen(ua + inwardU * wt, va + inwardV * wt);
+    const in2 = this.toScreen(ub + inwardU * wt, vb + inwardV * wt);
+    const up = (p) => [p[0], p[1] - hpix];
+    const ot1 = up(of1), ot2 = up(of2), it1 = up(in1), it2 = up(in2);
+
+    // outer face (what faces the camera) with a soft vertical light gradient
+    const y0 = Math.min(ot1[1], ot2[1]), y1 = Math.max(of1[1], of2[1]);
     const g = ctx.createLinearGradient(0, y0, 0, y1);
-    g.addColorStop(0, shade(faceNum, dim * 1.08)); g.addColorStop(1, shade(faceNum, dim * 0.9));
+    g.addColorStop(0, shade(faceNum, dim * 1.07)); g.addColorStop(1, shade(faceNum, dim * 0.9));
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(f1[0], f1[1]); ctx.lineTo(f2[0], f2[1]); ctx.lineTo(t2[0], t2[1]); ctx.lineTo(t1[0], t1[1]);
-    ctx.closePath(); ctx.fill();
-    // thin top cap
-    ctx.fillStyle = shade(topNum, dim);
-    ctx.beginPath();
-    ctx.moveTo(t1[0], t1[1]); ctx.lineTo(t2[0], t2[1]);
-    ctx.lineTo(t2[0], t2[1] - this.unit * 0.6); ctx.lineTo(t1[0], t1[1] - this.unit * 0.6);
-    ctx.closePath(); ctx.fill();
-    return { f1, f2 };
+    quad(ctx, of1, of2, ot2, ot1);
+
+    // top face (lightest) — gives the wall visible thickness
+    ctx.fillStyle = shade(topNum, dim * 1.02);
+    quad(ctx, ot1, ot2, it2, it1);
+    return { of1, of2, in1, in2 };
   }
 
   _drawWalls(ctx) {
-    const N = this.N, H = this.unit * 7.0;
+    const N = this.N, H = this.unit * 6.6;
     const dim = this.isDayNow ? 1 : 0.62;
-    // back wall: edge v = 0.5 (low j), spanning u
-    this._wallQuad(ctx, 0.5, 0.5, N + 0.5, 0.5, H, PAL.wall, PAL.wallTop, dim * 0.98);
-    // left wall: edge u = 0.5 (low i), spanning v — slightly darker (away from light)
-    this._wallQuad(ctx, 0.5, 0.5, 0.5, N + 0.5, H, PAL.wall, PAL.wallTop, dim * 0.88);
+    // back wall: edge v = 0.5 (low j), inward = +v
+    this._wallQuad(ctx, 0.5, 0.5, N + 0.5, 0.5, H, 0, 1, PAL.wall, PAL.wallTop, dim * 0.99);
+    // left wall: edge u = 0.5 (low i), inward = +u — a touch darker (away from light)
+    this._wallQuad(ctx, 0.5, 0.5, 0.5, N + 0.5, H, 1, 0, PAL.wall, PAL.wallTop, dim * 0.87);
+    this._wallCornerAO(ctx);
     this._drawWindow(ctx, H);
+  }
+
+  // soft ambient-occlusion shadow where the two back walls meet the floor
+  _wallCornerAO(ctx) {
+    const N = this.N;
+    ctx.save();
+    this._floorPath(ctx); ctx.clip();
+    for (const along of ['u', 'v']) {
+      const a = this.toScreen(along === 'u' ? 0.5 : 0.5, along === 'u' ? 0.5 : 0.5);
+      const b = along === 'u' ? this.toScreen(N + 0.5, 0.5) : this.toScreen(0.5, N + 0.5);
+      const grad = ctx.createLinearGradient(a[0], a[1], a[0], a[1] + this.unit * 5);
+      grad.addColorStop(0, 'rgba(60,45,40,0.22)'); grad.addColorStop(1, 'rgba(60,45,40,0)');
+      ctx.strokeStyle = grad; ctx.lineWidth = this.unit * 4;
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    ctx.restore();
   }
 
   _drawWindow(ctx, H) {
