@@ -3,9 +3,13 @@ name: Deploy Fan Feng Shui to GitHub Pages
 # Publishes the static game in fan-cooling-game/ to GitHub Pages.
 # Requires repo Settings → Pages → Source: "GitHub Actions".
 
+# Deploys only from the default branch (after merge) or on manual dispatch, so
+# it doesn't fail red on every PR push. One-time setup: a repo admin must turn on
+# Settings → Pages → Source: "GitHub Actions" (the Actions token isn't allowed to
+# enable Pages automatically in this repo).
 on:
   push:
-    branches: [main, claude/fan-cooling-game-sa3af4]
+    branches: [main]
     paths: ['fan-cooling-game/**', '.github/workflows/deploy-fan-game.yml']
   workflow_dispatch:
 
