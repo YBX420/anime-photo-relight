@@ -1,53 +1,66 @@
 // scene.js
-// Three.js presentation layer. Cel-shaded ("三渲二" / toon) room, cheap inverted-
-// hull outlines, a temperature heat-map on the floor, and GPU-light airflow
-// particles advected by the fluid velocity field.
+// Presentation layer in the spirit of *Townscaper*: soft pastel palette, smooth
+// matte (Lambert) shading with no hard ink outlines, gently rounded forms, soft
+// shadows, a clean gradient sky and filmic tone-mapping. On top of that it draws
+// a temperature heat-map on the floor and airflow particles advected by the
+// fluid velocity field.
 
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from '../vendor/addons/RoundedBoxGeometry.js';
 
 const TAU = Math.PI * 2;
 
-// ----- toon helpers ---------------------------------------------------------
-
-function gradientMap(steps = 4) {
-  const data = new Uint8Array(steps);
-  for (let i = 0; i < steps; i++) data[i] = Math.round((i / (steps - 1)) * 255);
-  const tex = new THREE.DataTexture(data, steps, 1, THREE.RedFormat);
-  tex.minFilter = THREE.NearestFilter;
-  tex.magFilter = THREE.NearestFilter;
-  tex.generateMipmaps = false;
-  tex.needsUpdate = true;
-  return tex;
-}
-
-const OUTLINE_COLOR = 0x2a2433;
+// Soft, slightly desaturated "Townscaper" palette.
+const PAL = {
+  floor:   0xf0ddb8,
+  wall:    0xf6efe4,
+  wallTop: 0xece1d0,
+  couch:   0xe79a7d,
+  couchB:  0xd9836a,
+  plant:   0x8cba84,
+  pot:     0xd98c63,
+  skin:    0xffe0c2,
+  body:    0x8fb6e6,
+  fanBody: 0xaab4d6,
+  fanBlade:0xe6f0ff,
+  fanHub:  0xffd06e,
+  island:  0xe7c79a,
+  islandB: 0xd8b483,
+  water:   0x9ed8d6,
+};
 
 export class Scene3D {
   constructor(canvas) {
     this.canvas = canvas;
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.scene = new THREE.Scene();
-    this.grad = gradientMap(4);
 
-    this.camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-    this.camAngle = Math.PI * 0.25;   // azimuth, stepped by view buttons
+    this.camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+    this.camAngle = Math.PI * 0.22;
     this.camTargetAngle = this.camAngle;
-    this.camHeight = 9;
-    this.camDist = 13;
+    this.camHeight = 9.5;
+    this.camDist = 14;
 
-    this.fans = [];          // {group, blades, spinSpeed, popT, target}
+    this.fans = [];
     this.particles = null;
-    this.partPos = null;     // grid-space particle state
-    this.partLife = null;
     this.N = 64;
-    this.roomSize = 8;       // world units across the room
+    this.roomSize = 8;
+
+    this._skies = {
+      day: makeSky(0x9fd2ff, 0xeaf7ff),
+      night: makeSky(0x232b4d, 0x46507e),
+    };
 
     this._buildLights();
     this._buildEnv();
+    this._buildIsland();
     this._buildRoom();
     this._buildHeatPlane();
     this._buildCharacter();
@@ -56,61 +69,73 @@ export class Scene3D {
     this.resize();
   }
 
-  // --- construction ---------------------------------------------------------
+  // --- lighting & environment ----------------------------------------------
 
   _buildLights() {
-    this.hemi = new THREE.HemisphereLight(0xffe9c4, 0x6b6f8a, 0.9);
+    // bright soft sky/ground fill — the backbone of the Townscaper softness
+    this.hemi = new THREE.HemisphereLight(0xdcefff, 0xf3e2c4, 1.15);
     this.scene.add(this.hemi);
 
-    this.sun = new THREE.DirectionalLight(0xfff1d0, 1.2);
-    this.sun.position.set(6, 11, 4);
+    // gentle key light with soft shadows
+    this.sun = new THREE.DirectionalLight(0xfff3df, 1.35);
+    this.sun.position.set(7, 13, 6);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(1024, 1024);
-    const d = 9;
-    this.sun.shadow.camera.left = -d; this.sun.shadow.camera.right = d;
-    this.sun.shadow.camera.top = d; this.sun.shadow.camera.bottom = -d;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.shadow.radius = 5;
+    this.sun.shadow.bias = -0.0004;
+    const d = 10;
+    Object.assign(this.sun.shadow.camera, { left: -d, right: d, top: d, bottom: -d, near: 1, far: 40 });
     this.scene.add(this.sun);
+    this.scene.add(this.sun.target);
 
-    this.ambient = new THREE.AmbientLight(0xffffff, 0.25);
+    // a cool bounce from the opposite side keeps shadows from going muddy
+    this.fill = new THREE.DirectionalLight(0xbfd4ff, 0.35);
+    this.fill.position.set(-6, 5, -5);
+    this.scene.add(this.fill);
+
+    this.ambient = new THREE.AmbientLight(0xffffff, 0.35);
     this.scene.add(this.ambient);
   }
 
   _buildEnv() {
-    this.scene.background = new THREE.Color(0xcfe8ff);
-    this.scene.fog = new THREE.Fog(0xcfe8ff, 22, 40);
+    this.scene.background = this._skies.day;
+    this.scene.fog = new THREE.Fog(0xeaf7ff, 26, 52);
   }
 
-  // Cel-shaded material: banded diffuse (gradientMap) + a Fresnel rim light
-  // injected via onBeforeCompile. Banding + outline + rim are the three
-  // ingredients of the "三渲二" look.
-  _toon(color, { emissive = 0x000000, rim = 0.45 } = {}) {
-    const mat = new THREE.MeshToonMaterial({ color, emissive, gradientMap: this.grad });
-    mat.onBeforeCompile = (shader) => {
-      shader.uniforms.rimStrength = { value: rim };
-      shader.uniforms.rimColor = { value: new THREE.Color(0xffffff) };
-      shader.fragmentShader =
-        'uniform float rimStrength;\nuniform vec3 rimColor;\n' +
-        shader.fragmentShader.replace(
-          '#include <dithering_fragment>',
-          `float rimF = 1.0 - max(dot(normalize(normal), normalize(vViewPosition)), 0.0);
-           rimF = smoothstep(0.55, 1.0, rimF);
-           gl_FragColor.rgb = mix(gl_FragColor.rgb, gl_FragColor.rgb + rimColor, rimStrength * rimF);
-           #include <dithering_fragment>`
-        );
-    };
-    mat.customProgramCacheKey = () => 'toon-rim-v1';
-    return mat;
+  _soft(color, { emissive = 0x000000 } = {}) {
+    return new THREE.MeshLambertMaterial({ color, emissive });
   }
 
-  _addOutline(mesh, scale = 1.05) {
-    const o = new THREE.Mesh(
-      mesh.geometry,
-      new THREE.MeshBasicMaterial({ color: OUTLINE_COLOR, side: THREE.BackSide })
+  _round(w, h, d, r = 0.12) {
+    return new RoundedBoxGeometry(w, h, d, 3, Math.min(r, Math.min(w, h, d) / 2 - 0.001));
+  }
+
+  _mesh(geo, mat, { cast = true, recv = true } = {}) {
+    const m = new THREE.Mesh(geo, mat);
+    m.castShadow = cast; m.receiveShadow = recv;
+    return m;
+  }
+
+  // --- island base (sits on soft water, like Townscaper) --------------------
+
+  _buildIsland() {
+    const S = this.roomSize;
+    const base = this._mesh(this._round(S + 1.4, 1.4, S + 1.4, 0.5), this._soft(PAL.island));
+    base.position.y = -0.9;
+    this.scene.add(base);
+    const lip = this._mesh(this._round(S + 2.2, 0.5, S + 2.2, 0.5), this._soft(PAL.islandB));
+    lip.position.y = -1.5;
+    this.scene.add(lip);
+
+    const water = new THREE.Mesh(
+      new THREE.CircleGeometry(60, 48),
+      new THREE.MeshLambertMaterial({ color: PAL.water, transparent: true, opacity: 0.92 })
     );
-    o.scale.setScalar(scale);
-    o.raycast = () => {};
-    mesh.add(o);
-    return mesh;
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = -1.9;
+    water.receiveShadow = true;
+    this.water = water;
+    this.scene.add(water);
   }
 
   _buildRoom() {
@@ -119,65 +144,75 @@ export class Scene3D {
     this.roomRoot = root;
     this.scene.add(root);
 
-    // floor (toon wood-ish tile)
-    const floor = new THREE.Mesh(
-      new THREE.BoxGeometry(S, 0.3, S),
-      this._toon(0xe7c9a0)
-    );
+    // floor
+    const floor = this._mesh(this._round(S, 0.3, S, 0.08), this._soft(PAL.floor));
     floor.position.y = -0.15;
-    floor.receiveShadow = true;
+    floor.castShadow = false;
     root.add(floor);
 
-    // back + side walls (low so we can see in). Front-left is open to camera.
-    const wallMat = this._toon(0xf3ece2);
-    const wallH = 2.6, t = 0.25;
-    const mkWall = (w, h, d, x, y, z) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), wallMat);
+    const wallMat = this._soft(PAL.wall);
+    const wallH = 2.6, t = 0.28, half = S / 2;
+    const winW = 3.2;
+    const mkWall = (w, h, dpth, x, y, z) => {
+      const m = this._mesh(this._round(w, h, dpth, 0.1), wallMat);
       m.position.set(x, y, z);
-      m.castShadow = true; m.receiveShadow = true;
       root.add(m);
       return m;
     };
-    // back wall (-z) with a window gap in the middle
-    const half = S / 2;
-    const winW = 3.2;
+    // back wall (-z) with a window gap
     mkWall((S - winW) / 2, wallH, t, -(winW / 2 + (S - winW) / 4), wallH / 2 - 0.15, -half);
     mkWall((S - winW) / 2, wallH, t, (winW / 2 + (S - winW) / 4), wallH / 2 - 0.15, -half);
-    mkWall(winW, 0.6, t, 0, wallH - 0.45, -half); // lintel above window
+    mkWall(winW + 0.3, 0.62, t, 0, wallH - 0.45, -half);
     // left wall (-x)
     mkWall(t, wallH, S, -half, wallH / 2 - 0.15, 0);
 
-    // window pane + frame in the back wall gap
+    // window: frame + glass + a soft sun card behind it
     const winGroup = new THREE.Group();
-    winGroup.position.set(0, 1.15, -half + 0.02);
-    const frame = new THREE.Mesh(
-      new THREE.BoxGeometry(winW + 0.2, 1.9, 0.12),
-      this._toon(0xbfae98)
-    );
-    winGroup.add(frame);
+    winGroup.position.set(0, 1.15, -half + 0.04);
+    winGroup.add(this._mesh(this._round(winW + 0.2, 1.9, 0.14, 0.05), this._soft(PAL.wallTop), { recv: false }));
     this.windowPane = new THREE.Mesh(
       new THREE.PlaneGeometry(winW - 0.1, 1.6),
-      new THREE.MeshBasicMaterial({ color: 0xafe0ff, transparent: true, opacity: 0.45 })
+      new THREE.MeshBasicMaterial({ color: 0xcfeeff, transparent: true, opacity: 0.3 })
     );
-    this.windowPane.position.z = 0.07;
+    this.windowPane.position.z = 0.09;
     winGroup.add(this.windowPane);
-    // sun glow card behind the window, recoloured by time of day
     this.sunCard = new THREE.Mesh(
-      new THREE.PlaneGeometry(winW + 1.4, 2.6),
-      new THREE.MeshBasicMaterial({ color: 0xffe39a, transparent: true, opacity: 0.9 })
+      new THREE.PlaneGeometry(winW + 1.6, 2.8),
+      new THREE.MeshBasicMaterial({ color: 0xfff0c4, transparent: true, opacity: 0.9 })
     );
-    this.sunCard.position.set(0, 0.2, -0.4);
+    this.sunCard.position.set(0, 0.2, -0.5);
     winGroup.add(this.sunCard);
     root.add(winGroup);
 
-    // a couch + plant so the room reads as a living room
-    const couch = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 1.0), this._toon(0xd98c7a));
-    couch.position.set(-2.0, 0.25, 2.3);
-    couch.castShadow = true; this._addOutline(couch, 1.04);
+    // couch
+    const couch = this._mesh(this._round(2.4, 0.7, 1.0, 0.22), this._soft(PAL.couch));
+    couch.position.set(-2.0, 0.22, 2.3);
     root.add(couch);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.7, 0.3), this._toon(0xc97a68));
-    back.position.set(-2.0, 0.55, 2.75); this._addOutline(back, 1.05);
+    const back = this._mesh(this._round(2.4, 0.7, 0.32, 0.16), this._soft(PAL.couchB));
+    back.position.set(-2.0, 0.5, 2.75);
     root.add(back);
+    const cushion = this._mesh(this._round(1.0, 0.25, 0.8, 0.12), this._soft(0xf2b89e));
+    cushion.position.set(-2.5, 0.6, 2.3);
+    root.add(cushion);
+
+    // potted plant
+    const pot = this._mesh(new THREE.CylinderGeometry(0.28, 0.22, 0.45, 18), this._soft(PAL.pot));
+    pot.position.set(2.9, 0.22, 2.9);
+    root.add(pot);
+    for (let i = 0; i < 3; i++) {
+      const leaf = this._mesh(new THREE.SphereGeometry(0.34 - i * 0.06, 14, 12), this._soft(PAL.plant));
+      leaf.position.set(2.9 + (i - 1) * 0.18, 0.7 + i * 0.22, 2.9);
+      leaf.scale.y = 1.3;
+      root.add(leaf);
+    }
+    // soft rug to ground the scene
+    const rug = new THREE.Mesh(
+      new THREE.CircleGeometry(1.7, 36),
+      new THREE.MeshLambertMaterial({ color: 0xf4c9b0, transparent: true, opacity: 0.9 })
+    );
+    rug.rotation.x = -Math.PI / 2; rug.position.set(0.4, 0.012, 1.0);
+    rug.receiveShadow = true;
+    root.add(rug);
   }
 
   _buildHeatPlane() {
@@ -187,12 +222,9 @@ export class Scene3D {
     this.heatTex.minFilter = THREE.LinearFilter;
     this.heatTex.magFilter = THREE.LinearFilter;
     this.heatTex.needsUpdate = true;
-
     const plane = new THREE.Mesh(
       new THREE.PlaneGeometry(this.roomSize, this.roomSize),
-      new THREE.MeshBasicMaterial({
-        map: this.heatTex, transparent: true, opacity: 0.55, depthWrite: false,
-      })
+      new THREE.MeshBasicMaterial({ map: this.heatTex, transparent: true, opacity: 0.4, depthWrite: false })
     );
     plane.rotation.x = -Math.PI / 2;
     plane.position.y = 0.02;
@@ -203,21 +235,22 @@ export class Scene3D {
 
   _buildCharacter() {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.5, 6, 12), this._toon(0x7fb4e0));
-    body.position.y = 0.55; body.castShadow = true; this._addOutline(body, 1.06);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 16), this._toon(0xffd9b8));
-    head.position.y = 1.2; head.castShadow = true; this._addOutline(head, 1.06);
+    const body = this._mesh(new THREE.CapsuleGeometry(0.32, 0.5, 8, 16), this._soft(PAL.body));
+    body.position.y = 0.55;
+    const head = this._mesh(new THREE.SphereGeometry(0.3, 20, 18), this._soft(PAL.skin));
+    head.position.y = 1.2;
     g.add(body, head);
-    // sweat drop that shows when hot
     this.sweat = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 10, 10),
-      new THREE.MeshToonMaterial({ color: 0x6fc6ff, gradientMap: this.grad })
+      new THREE.SphereGeometry(0.07, 12, 12),
+      new THREE.MeshLambertMaterial({ color: 0x7fd0ff, emissive: 0x113344 })
     );
     this.sweat.position.set(0.22, 1.28, 0.18);
+    this.sweat.visible = false;
     g.add(this.sweat);
     g.position.set(1.8, 0, 1.6);
     this.scene.add(g);
     this.character = g;
+    this.headMesh = head;
   }
 
   setCharacterGrid(gi, gj) {
@@ -226,7 +259,6 @@ export class Scene3D {
   }
 
   // --- coordinate mapping ---------------------------------------------------
-  // grid 1..N  <->  world -S/2 .. S/2 on X and Z
   gridToWorld(gi, gj) {
     const S = this.roomSize, N = this.N;
     return [((gi - 0.5) / N - 0.5) * S, ((gj - 0.5) / N - 0.5) * S];
@@ -240,37 +272,30 @@ export class Scene3D {
 
   createFan(gi, gj, angle) {
     const group = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.12, 18), this._toon(0x4a5168));
-    base.position.y = 0.06; base.castShadow = true;
-    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 10), this._toon(0x6a7290));
+    const base = this._mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.14, 20), this._soft(PAL.fanBody));
+    base.position.y = 0.07;
+    const pole = this._mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.9, 12), this._soft(PAL.fanBody));
     pole.position.y = 0.55;
     const headGroup = new THREE.Group();
     headGroup.position.y = 1.0;
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.04, 10, 24), this._toon(0x9fa8c6));
+    const ring = this._mesh(new THREE.TorusGeometry(0.34, 0.045, 12, 28), this._soft(0xc2cbe6));
     ring.rotation.y = Math.PI / 2;
-    const hub = new THREE.Mesh(new THREE.SphereGeometry(0.1, 12, 12), this._toon(0xffd36e));
-    hub.rotation.z = Math.PI / 2;
+    const hub = this._mesh(new THREE.SphereGeometry(0.1, 14, 14), this._soft(PAL.fanHub));
     const blades = new THREE.Group();
     for (let b = 0; b < 4; b++) {
-      const blade = new THREE.Mesh(
-        new THREE.BoxGeometry(0.02, 0.5, 0.16),
-        this._toon(0xbfe3ff, { emissive: 0x223344 })
-      );
-      blade.position.y = 0.0; blade.geometry.translate(0, 0.18, 0);
+      const blade = this._mesh(this._round(0.03, 0.5, 0.17, 0.04), this._soft(PAL.fanBlade));
+      blade.geometry.translate(0, 0.18, 0);
       blade.rotation.x = (b / 4) * TAU;
       blades.add(blade);
     }
     blades.rotation.y = Math.PI / 2;
     headGroup.add(ring, hub, blades);
-
     group.add(base, pole, headGroup);
-    this._addOutline(base, 1.05);
-    group.userData.headGroup = headGroup;
 
     const [x, z] = this.gridToWorld(gi, gj);
     group.position.set(x, 0, z);
     group.rotation.y = angle;
-    group.scale.setScalar(0.01); // pop-in
+    group.scale.setScalar(0.01);
     this.scene.add(group);
 
     const fan = { group, blades, gi, gj, angle, popT: 0, target: 1, power: 1 };
@@ -279,8 +304,9 @@ export class Scene3D {
   }
 
   removeFan(fan) {
-    this.scene.remove(fan.group);
+    fan.dying = true;
     this.fans = this.fans.filter((f) => f !== fan);
+    this.scene.remove(fan.group);
   }
 
   setFanAngle(fan, angle) {
@@ -299,7 +325,7 @@ export class Scene3D {
         const t = (Tfield[(i + 1) + (N + 2) * (j + 1)] - minT) / span;
         const [r, g, b] = heatColor(Math.max(0, Math.min(1, t)));
         const k = (i + j * N) * 4;
-        data[k] = r; data[k + 1] = g; data[k + 2] = b; data[k + 3] = 150;
+        data[k] = r; data[k + 1] = g; data[k + 2] = b; data[k + 3] = 120;
       }
     }
     this.heatTex.needsUpdate = true;
@@ -320,7 +346,7 @@ export class Scene3D {
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
     const mat = new THREE.PointsMaterial({
-      size: 0.09, transparent: true, opacity: 0.9, vertexColors: true,
+      size: 0.1, transparent: true, opacity: 0.95, vertexColors: true,
       depthWrite: false, blending: THREE.AdditiveBlending,
     });
     this.particles = new THREE.Points(geo, mat);
@@ -351,14 +377,14 @@ export class Scene3D {
       this.partPos[p * 2 + 1] = gj;
       const [x, z] = this.gridToWorld(gi, gj);
       pos[p * 3] = x;
-      pos[p * 3 + 1] = 0.15 + Math.min(1.2, sp * 30) * 0.55;
+      pos[p * 3 + 1] = 0.18 + Math.min(1.2, sp * 30) * 0.55;
       pos[p * 3 + 2] = z;
-      // brightness tracks local airflow so only moving air glows (additive
-      // blending makes near-zero brightness invisible). Tint cool blue→white.
-      const b = Math.min(1, sp * 26) * Math.min(1, this.partLife[p] * 2.2);
-      col[p * 3] = b * 0.7;
-      col[p * 3 + 1] = b * 0.85;
-      col[p * 3 + 2] = b;
+      // sharp speed threshold so still air is fully invisible (no speckle);
+      // only moving streams glow.
+      let b = sp * 34 - 0.5;
+      b = b < 0 ? 0 : Math.min(1, b);
+      b *= Math.min(1, this.partLife[p] * 2.2);
+      col[p * 3] = b * 0.78; col[p * 3 + 1] = b * 0.9; col[p * 3 + 2] = b;
     }
     this.particles.geometry.attributes.position.needsUpdate = true;
     this.particles.geometry.attributes.color.needsUpdate = true;
@@ -368,19 +394,21 @@ export class Scene3D {
 
   setTimeOfDay(isDay, sunStrength = 1) {
     if (isDay) {
-      this.scene.background = new THREE.Color(0xbfe3ff);
-      this.hemi.color.set(0xffe9c4); this.hemi.intensity = 0.95;
-      this.sun.color.set(0xfff1d0); this.sun.intensity = 1.1 * sunStrength + 0.2;
-      this.sunCard.material.color.set(0xffe39a);
-      this.sunCard.material.opacity = 0.9 * sunStrength;
-      this.scene.fog.color.set(0xbfe3ff);
+      this.scene.background = this._skies.day;
+      this.scene.fog.color.set(0xeaf7ff);
+      this.hemi.color.set(0xdcefff); this.hemi.groundColor.set(0xf3e2c4); this.hemi.intensity = 1.05 + 0.25 * sunStrength;
+      this.sun.color.set(0xfff3df); this.sun.intensity = 0.7 + 0.9 * sunStrength;
+      this.ambient.intensity = 0.35;
+      this.sunCard.material.color.set(0xfff0c4); this.sunCard.material.opacity = 0.9 * sunStrength;
+      this.water.material.color.set(PAL.water);
     } else {
-      this.scene.background = new THREE.Color(0x222a44);
-      this.hemi.color.set(0x9fb0e0); this.hemi.intensity = 0.5;
-      this.sun.color.set(0x9fb6ff); this.sun.intensity = 0.35;
-      this.sunCard.material.color.set(0x3a4a8a);
-      this.sunCard.material.opacity = 0.6;
-      this.scene.fog.color.set(0x222a44);
+      this.scene.background = this._skies.night;
+      this.scene.fog.color.set(0x2a3358);
+      this.hemi.color.set(0xb6c4f0); this.hemi.groundColor.set(0x6a6f95); this.hemi.intensity = 0.6;
+      this.sun.color.set(0xb9c8ff); this.sun.intensity = 0.3;
+      this.ambient.intensity = 0.28;
+      this.sunCard.material.color.set(0x3a4a8a); this.sunCard.material.opacity = 0.55;
+      this.water.material.color.set(0x4a6f8c);
     }
   }
 
@@ -388,13 +416,16 @@ export class Scene3D {
 
   rotateView(dir) { this.camTargetAngle += dir * Math.PI / 2; }
 
-  pickFloor(clientX, clientY) {
+  _ndc(clientX, clientY) {
     const rect = this.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
+    return new THREE.Vector2(
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1
     );
-    this.raycaster.setFromCamera(ndc, this.camera);
+  }
+
+  pickFloor(clientX, clientY) {
+    this.raycaster.setFromCamera(this._ndc(clientX, clientY), this.camera);
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
     const hit = new THREE.Vector3();
     if (!this.raycaster.ray.intersectPlane(plane, hit)) return null;
@@ -404,15 +435,9 @@ export class Scene3D {
   }
 
   pickFan(clientX, clientY) {
-    const rect = this.canvas.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1
-    );
-    this.raycaster.setFromCamera(ndc, this.camera);
+    this.raycaster.setFromCamera(this._ndc(clientX, clientY), this.camera);
     for (const fan of this.fans) {
-      const hits = this.raycaster.intersectObject(fan.group, true);
-      if (hits.length) return fan;
+      if (this.raycaster.intersectObject(fan.group, true).length) return fan;
     }
     return null;
   }
@@ -428,41 +453,29 @@ export class Scene3D {
   // --- per-frame ------------------------------------------------------------
 
   update(dt, time) {
-    // ease camera azimuth toward the stepped target (springy)
     this.camAngle += (this.camTargetAngle - this.camAngle) * Math.min(1, dt * 6);
     const a = this.camAngle;
-    this.camera.position.set(
-      Math.sin(a) * this.camDist,
-      this.camHeight,
-      Math.cos(a) * this.camDist
-    );
-    this.camera.lookAt(0, 0.8, 0);
+    this.camera.position.set(Math.sin(a) * this.camDist, this.camHeight, Math.cos(a) * this.camDist);
+    this.camera.lookAt(0, 0.7, 0);
 
     for (const fan of this.fans) {
-      // springy pop-in scale
       fan.popT += (fan.target - fan.popT) * Math.min(1, dt * 10);
-      const overshoot = 1 + Math.sin(Math.min(1, fan.popT) * Math.PI) * 0.12 * (fan.target);
-      fan.group.scale.setScalar(fan.popT * overshoot);
-      // spin blades by power
+      const overshoot = 1 + Math.sin(Math.min(1, fan.popT) * Math.PI) * 0.12;
+      fan.group.scale.setScalar(Math.max(0.001, fan.popT * overshoot));
       fan.blades.rotation.x += dt * (4 + fan.power * 26);
     }
 
-    // bob the character + sweat wobble
     if (this.character) {
       this.character.position.y = Math.sin(time * 2) * 0.03;
-      if (this.sweat) {
-        this.sweat.position.y = 1.28 + Math.sin(time * 3) * 0.02;
-      }
+      if (this.sweat) this.sweat.position.y = 1.28 + Math.sin(time * 3) * 0.02;
     }
   }
 
   setCharacterHot(hotness) {
-    // hotness 0..1 -> sweat visible, face redder
     if (this.sweat) this.sweat.visible = hotness > 0.45;
-    const c = this.character?.children?.[1]; // head
-    if (c && c.material) {
-      c.material.color.lerpColors(
-        new THREE.Color(0xffd9b8), new THREE.Color(0xff9a86), Math.max(0, hotness)
+    if (this.headMesh) {
+      this.headMesh.material.color.lerpColors(
+        new THREE.Color(PAL.skin), new THREE.Color(0xff9a86), Math.max(0, Math.min(1, hotness))
       );
     }
   }
@@ -470,14 +483,28 @@ export class Scene3D {
   render() { this.renderer.render(this.scene, this.camera); }
 }
 
-// Cool→hot colormap (blue→cyan→green→yellow→red), returns [r,g,b] 0..255.
+// vertical gradient sky as a CanvasTexture used for scene.background
+function makeSky(top, bottom) {
+  const c = document.createElement('canvas');
+  c.width = 4; c.height = 256;
+  const ctx = c.getContext('2d');
+  const g = ctx.createLinearGradient(0, 0, 0, 256);
+  g.addColorStop(0, '#' + top.toString(16).padStart(6, '0'));
+  g.addColorStop(1, '#' + bottom.toString(16).padStart(6, '0'));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, 4, 256);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+// Cool→hot colormap, softened to pastel tones to suit the palette.
 function heatColor(t) {
   const stops = [
-    [0.0, [80, 140, 240]],
-    [0.3, [90, 210, 210]],
-    [0.5, [120, 220, 130]],
-    [0.7, [245, 215, 90]],
-    [1.0, [240, 90, 70]],
+    [0.0, [120, 170, 235]],
+    [0.35, [130, 210, 205]],
+    [0.55, [165, 220, 150]],
+    [0.75, [245, 210, 120]],
+    [1.0, [240, 120, 105]],
   ];
   for (let i = 0; i < stops.length - 1; i++) {
     const [a, ca] = stops[i], [b, cb] = stops[i + 1];
